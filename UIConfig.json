@@ -1,0 +1,92 @@
+{
+  "page": {
+    "label": "TRANSLATE.YAM_CONFIGURATION"
+  },
+  "sections": [
+  {
+    "id": "section_account",
+    "element": "section",
+    "label": "TRANSLATE.YAM_ACCOUNT",
+    "onSave": {
+      "type": "controller",
+      "endpoint": "music_service/yam",
+      "method": "accountLogin"
+    },
+    "saveButton": {
+      "label": "TRANSLATE.LOGIN",
+      "data": [
+        "auth",
+        "username",
+        "password",
+        "token"
+      ]
+    },
+    "content": [
+      {
+        "id": "auth",
+        "element": "select",
+        "description": "TRANSLATE.AUTH_TIP",
+        "label": "TRANSLATE.AUTH_TYPE",
+        "value": {"value": 1, "label": "TRANSLATE.AUTH_TYPE_PASSWORD"},
+        "options": [
+          {"value": 1, "label": "TRANSLATE.AUTH_TYPE_PASSWORD"},
+          {"value": 2, "label": "TRANSLATE.AUTH_TYPE_TOKEN"}
+        ]
+      },
+      {
+        "id": "username",
+        "type": "text",
+        "element": "input",
+        "description": "TRANSLATE.USERNAME_TIP",
+        "label": "TRANSLATE.USERNAME",
+        "value": "",
+        "visibleIf": {"field": "auth", "value": 1}
+      },
+      {
+        "id": "password",
+        "type": "password",
+        "element": "input",
+        "description": "TRANSLATE.PASSWORD_TIP",
+        "label": "TRANSLATE.PASSWORD",
+        "value": "",
+        "visibleIf": {"field": "auth", "value": 1}
+      },
+      {
+        "id": "token",
+        "type": "text",
+        "element": "input",
+        "description": "TRANSLATE.TOKEN_TIP",
+        "label": "TRANSLATE.TOKEN",
+        "value": "",
+        "attributes": [],
+        "visibleIf": {"field": "auth", "value": 2}
+      }
+    ]
+  },
+  {
+    "id": "section_playback",
+    "element": "section",
+    "label": "TRANSLATE.PLAYBACK",
+    "onSave": {
+      "type": "controller",
+      "endpoint": "music_service/yam",
+      "method": "configPlaybackSave"
+    },
+    "saveButton": {
+      "label": "TRANSLATE.SAVE",
+      "data": [
+        "hq"
+      ]
+    },
+    "content": [
+      {
+        "id": "hq",
+        "element": "switch",
+        "label": "TRANSLATE.PLAYBACK_HQ",
+        "doc": "TRANSLATE.PLAYBACK_HQ_TIP",
+        "value": false
+      }
+    ]
+  }
+  ]
+}
