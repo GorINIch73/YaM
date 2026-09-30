@@ -33,7 +33,7 @@ function yandexMusic(context) {
     self.current_track = false;
     self.positionAtPrefetch = -1;
 
-    self.proxy = new proxy();
+    self.proxy = new proxy(self.logger);
 }
 
 yandexMusic.prototype.onVolumioStart = function()
@@ -61,7 +61,12 @@ yandexMusic.prototype.onStart = function() {
 
     self.hq = !!self.config.get('hq');
     if (self.hq) {
-        self.proxy.start();
+        return self.proxy.start().then(function () {
+            return libQ.resolve();
+        }).fail(function (err) {
+            self.logger.error('Unable to start YaM proxy', err);
+            return libQ.resolve();
+        });
     }
 
     return libQ.resolve();
@@ -263,7 +268,14 @@ yandexMusic.prototype.configPlaybackSave = function(data) {
 
     self.hq = !!self.config.get('hq');
     if (self.hq) {
-        self.proxy.start();
+        return self.proxy.start().then(function () {
+            return libQ.resolve();
+        }).fail(function (err) {
+            self.logger.error('Unable to start YaM proxy', err);
+            return libQ.reject(err);
+        });
+    } else {
+        self.proxy.stop();
     }
 
     return libQ.resolve();
@@ -725,7 +737,7 @@ yandexMusic.prototype.clearAddPlayTrack = function(track) {
             return self.mpdPlugin.sendMpdCommand('clear', []);
         })
         .then(function () {
-            return getTrackUrl(self.client, track_id, self.hq, self.logger);
+            return getTrackUrl(self.client, track_id, self.hq, self.logger, self.proxy.port);
         })
         .then(function (data) {
             track_uri = data.uri;
@@ -765,7 +777,7 @@ yandexMusic.prototype.prefetch = function(track) {
 
     self.positionAtPrefetch = self.commandRouter.stateMachine.currentPosition;
 
-    return getTrackUrl(self.client, track_id, self.hq, self.logger)
+    return getTrackUrl(self.client, track_id, self.hq, self.logger, self.proxy.port)
         .then(function (data) {
             return self.mpdPlugin.sendMpdCommand('addid "' + data.uri + '"', [])
         })

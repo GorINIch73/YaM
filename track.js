@@ -45,7 +45,7 @@ function getTrackV1(client, track_id, logger) {
     return defer.promise;
 };
 
-function getTrackV2(client, track_id, logger) {
+function getTrackV2(client, track_id, logger, proxyPort) {
     var defer = libQ.defer();
 
     var ids = track_id.split('@');
@@ -85,7 +85,7 @@ function getTrackV2(client, track_id, logger) {
             } else if (info.codec == 'mp3') {
                 ext = '.mp3';
             }
-            url = 'http://localhost:6601/?' + querystring.stringify({
+            url = 'http://127.0.0.1:' + proxyPort + '/?' + querystring.stringify({
                 'codec': info.codec,
                 'transport': info.transport,
                 'key': (info.key) ? info.key : '',
@@ -104,9 +104,9 @@ function getTrackV2(client, track_id, logger) {
     return defer.promise;
 };
 
-function getTrackUrl(client, track_id, hq, logger) {
+function getTrackUrl(client, track_id, hq, logger, proxyPort) {
     if (hq) {
-        return getTrackV2(client, track_id, logger);
+        return getTrackV2(client, track_id, logger, proxyPort);
     } else {
         return getTrackV1(client, track_id, logger);
     }

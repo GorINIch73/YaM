@@ -4,6 +4,8 @@ YaM — плагин музыкального сервиса для [Volumio](ht
 
 Для работы нужна подписка Яндекс Музыки и устройство с установленным Volumio. YaM имеет отдельный идентификатор `yam`, поэтому его можно использовать одновременно с оригинальным плагином `yandex_music`.
 
+YaM — форк плагина [Yandex Music для Volumio](https://github.com/achechulin/volumio-plugins-sources/tree/master/yandex_music). Спасибо автору оригинального плагина за проделанную работу и основу проекта.
+
 ## Установка из GitHub
 
 1. Включите SSH в настройках Volumio и подключитесь к устройству.
@@ -39,5 +41,6 @@ sudo systemctl restart volumio
 
 ## Благодарности
 
+- [achechulin](https://github.com/achechulin) — автор оригинального плагина, от которого сделан форк.
 - [Yandex Music API by MarshalX](https://github.com/MarshalX/yandex-music-api)
 - [Yandex Music Extension by Alexander Cherkashin](https://github.com/acherkashin/yandex-music-extension)
