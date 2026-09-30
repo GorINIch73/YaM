@@ -1,65 +1,43 @@
-# YaM — Yandex Music for Volumio
+# YaM — Яндекс Музыка для Volumio
 
-[Yandex Music](https://music.yandex.ru/) is a service for finding and listening 
-to music and podcasts that provides personalized recommendations for each user.
+YaM — плагин музыкального сервиса для [Volumio](https://volumio.com/), который подключает каталог Яндекс Музыки к музыкальному проигрывателю. Он поддерживает поиск, прослушивание альбомов и плейлистов, радиостанции и воспроизведение через MPD.
 
-You need a Yandex Music subscription to use this plugin.
+Для работы нужна подписка Яндекс Музыки и устройство с установленным Volumio. YaM имеет отдельный идентификатор `yam`, поэтому его можно использовать одновременно с оригинальным плагином `yandex_music`.
 
-## Manual Installation
+## Установка из GitHub
 
-To install the plugin manually, first make sure you have 
-[enabled SSH access](https://developers.volumio.com/SSH%20Connection) 
-on your Volumio device. Then, SSH into Volumio and do the following:
+1. Включите SSH в настройках Volumio и подключитесь к устройству.
+2. Выполните команды:
 
-```
-// SSH terminal:
-// (You can copy and paste each line after the $ sign)
-
-volumio:~$ git clone https://github.com/achechulin/volumio-plugins-sources
-volumio:~$ cd volumio-plugins-sources/YaM
-volumio:~/volumio-plugins-sources/YaM$ volumio plugin install
-
-...
-Progress: 100
-Status :YaM Successfully Installed, Do you want to enable the plugin now?
-...
-
-// If the process appears to hang at this point, just press Ctrl-C to return to the terminal.
+```sh
+cd /home/volumio
+git clone https://github.com/GorINIch73/YaM.git
+cd YaM
+volumio plugin install
 ```
 
-Now access Volumio in a web browser. Go to ``Plugins -> Installed plugins`` and enable the 
-YaM plugin by activating the switch next to it.
+3. Дождитесь сообщения об успешной установке. Если Volumio предложит включить плагин, подтвердите.
+4. В веб-интерфейсе Volumio откройте **Plugins → Installed plugins** и включите **YaM**.
+5. Откройте настройки YaM и войдите в аккаунт Яндекс Музыки по логину и паролю либо укажите OAuth-токен.
 
-Next go to ``Settings`` and provide login and password to obtain access token
-for Yandex Music service.
+Команда установки запускается из каталога клонированного репозитория. Volumio установит зависимости из `package.json`.
 
-## Manual Update
+## Обновление
 
-Assuming you have manually installed the plugin with the instructions above, 
-and you have not deleted the directory to which you cloned this repo, 
-you can SSH into Volumio and manually update the plugin as follows:
+Подключитесь по SSH и выполните:
 
-```
-// SSH terminal:
-// (You can copy and paste each line after the $ sign)
-
-volumio:~$ cd ~/volumio-plugins-sources/YaM
-volumio:~/volumio-plugins-sources/YaM$ rm -rf node_modules
-volumio:~/volumio-plugins-sources/YaM$ git pull
-...
-volumio:~/volumio-plugins-sources/YaM$ volumio plugin update
-
-This command will update the plugin on your device
-...
-Progress: 100
-Status :Successfully updated plugin
-
-// If the process appears to hang at this point, just press Ctrl-C to return to the terminal.
-
-volumio:~/volumio-plugins-sources/YaM$ systemctl restart volumio
+```sh
+cd /home/volumio/YaM
+git pull
+volumio plugin update
+sudo systemctl restart volumio
 ```
 
-## Thanks
+## Разработка
 
-Thanks to [Yandex Music API by MarshalX](https://github.com/MarshalX/yandex-music-api),
-and [Yandex Music Extension by Alexander Cherkashin](https://github.com/acherkashin/yandex-music-extension).
+Исходники плагина находятся в корне репозитория. Перед установкой после изменений используйте `volumio plugin install` или `volumio plugin update` на устройстве Volumio.
+
+## Благодарности
+
+- [Yandex Music API by MarshalX](https://github.com/MarshalX/yandex-music-api)
+- [Yandex Music Extension by Alexander Cherkashin](https://github.com/acherkashin/yandex-music-extension)

@@ -1,7 +1,7 @@
 {
 	"name": "yam",
 	"version": "0.1.0",
-	"description": "Yandex Music plugin for Volumio",
+	"description": "YaM — Yandex Music plugin for Volumio",
 	"main": "index.js",
 	"scripts": {
 		"test": "echo \"Error: no test specified\" && exit 1"
