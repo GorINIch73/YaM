@@ -138,7 +138,11 @@ Playlist.prototype.fetch = function() {
         return self.fetchRadio();
     }
 
-    if (self.tracks.length != 0) 
+    var ids = (self.playlist_id || '').split(':');
+    var isLikesPlaylist = self.type == 'playlist' && ids.length > 1 &&
+        String(ids[0]) == String(self.user_id) && String(ids[1]) == '3';
+
+    if (self.tracks.length != 0 && !isLikesPlaylist)
         return libQ.resolve(self.tracks);
 
     if (self.type == 'playlist') {
@@ -195,6 +199,48 @@ Playlist.prototype.fetchPlaylist = function() {
     var ids = self.playlist_id.split(':');
     var user_id = (ids.length > 1) ? ids[0] : self.user_id;
     var kind = (ids.length > 1) ? ids[1] : ids[0];
+
+    // The special kind=3 playlist is the user's likes library, not an
+    // ordinary playlist. Fetch its IDs from the likes endpoint, then resolve
+    // the corresponding track models so new likes appear in YaM immediately.
+    if (String(kind) == '3' && String(user_id) == String(self.user_id)) {
+        self.client.tracks.getLikedTracksIds(user_id).then(function (resp) {
+            var liked = (((resp || {}).result || {}).library || {}).tracks || [];
+            var trackIds = liked.map(function (x) {
+                return x.albumId ? (x.id + ':' + x.albumId) : String(x.id);
+            });
+
+            if (trackIds.length == 0) {
+                self.tracks = [];
+                defer.resolve(self.tracks);
+                return;
+            }
+
+            var batches = [];
+            for (var i = 0; i < trackIds.length; i += 100) {
+                batches.push(trackIds.slice(i, i + 100));
+            }
+
+            libQ.all(batches.map(function (batch) {
+                return self.client.tracks.getTracks({ 'track-ids': batch });
+            })).then(function (responses) {
+                var tracks = [];
+                responses.forEach(function (response) {
+                    tracks = tracks.concat((response.result || []).map(function (track) {
+                        return self.trackToSong(track, false, false, self.playlist_id);
+                    }));
+                });
+                self.tracks = tracks;
+                defer.resolve(self.tracks);
+            }).fail(function (err) {
+                defer.reject(new Error(err));
+            });
+        }).catch(function (err) {
+            defer.reject(new Error(err));
+        });
+
+        return defer.promise;
+    }
 
     self.client.playlists.getPlaylistById(user_id, kind).then(function (resp) {
         self.tracks = resp.result.tracks.map(function (x) { return self.trackToSong(x.track, false, false, self.playlist_id); });

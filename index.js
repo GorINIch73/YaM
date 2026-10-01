@@ -401,7 +401,13 @@ yandexMusic.prototype.setTrackFavourite = function (data, liked) {
         if (self.playlists[likesId]) {
             self.playlists[likesId].tracks = [];
         }
+        self.logger.info((liked ? 'Added track to' : 'Removed track from') + ' Yandex Music likes: ' + trackId);
+        self.commandRouter.pushToastMessage('success', self.getI18n('YAM_ACCOUNT'), self.getI18n(liked ? 'LIKE_SENT' : 'LIKE_REMOVED'));
         return result;
+    }).catch(function(err) {
+        self.logger.error('Unable to sync YaM like with Yandex Music', err);
+        self.commandRouter.pushToastMessage('error', self.getI18n('YAM_ACCOUNT'), self.getI18n('LIKE_FAILED'));
+        throw err;
     });
 };
 
@@ -624,35 +630,31 @@ yandexMusic.prototype.browseMyPlaylists = function () {
     var self = this;
     var defer = libQ.defer();
 
+    var likesId = self.uid + ':3';
+    var response = {
+        navigation: {
+            lists: [
+                {
+                    "availableListViews": ["grid", "list"],
+                    "type": "title",
+                    "title": self.getI18n('MY_PLAYLISTS'),
+                    "items": [{
+                        id: likesId,
+                        service: 'yam',
+                        type: 'playlist',
+                        name: self.getI18n('MY_LIKES'),
+                        title: self.getI18n('MY_LIKES'),
+                        albumart: 'https://avatars.yandex.net/get-music-user-playlist/11418140/favorit-playlist-cover.bb48fdb9b9f4/200x200',
+                        uri: 'yam/playlist/' + likesId
+                    }]
+                }
+            ]
+        }
+    };
+
+    self.titles[likesId] = self.getI18n('MY_LIKES');
+
     self.client.user.getPlayLists(self.uid).then(function (resp) {
-
-        var response = {
-            navigation: {
-                lists: [
-                    {
-                        "availableListViews": [
-                            "grid","list"
-                        ],
-                        "type": "title",
-                        "title": self.getI18n('MY_PLAYLISTS'),
-                        "items": [
-                            {
-                                id: self.uid + ':3',
-                                service: 'yam',
-                                type: 'playlist',
-                                name: self.getI18n('MY_LIKES'),
-                                title: self.getI18n('MY_LIKES'),
-                                albumart: 'https://avatars.yandex.net/get-music-user-playlist/11418140/favorit-playlist-cover.bb48fdb9b9f4/200x200',
-                                uri: 'yam/playlist/' + self.uid + ':3',
-                            },
-                        ],
-                    }
-                ]
-            }
-        };
-
-        // Likes playlist: kind=3
-        self.titles[self.uid + ':3'] = self.getI18n('MY_LIKES');
 
         var p = new playlist(self.client, self.uid);
         var blocks = resp.result.map(function (x) { return p.landingToPlaylist(x); });
@@ -663,7 +665,10 @@ yandexMusic.prototype.browseMyPlaylists = function () {
 
         defer.resolve(response);
     }).catch(function (err) {
-        defer.reject(new Error());
+        self.logger.error('Unable to load YaM playlists', err);
+        // Keep the likes entry visible even if the separate playlists call
+        // fails; its tracks are loaded independently from the likes API.
+        defer.resolve(response);
     });
 
     return defer.promise;
