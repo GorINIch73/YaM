@@ -87,58 +87,6 @@
         "value": false
       }
     ]
-  },
-  {
-    "id": "section_update",
-    "element": "section",
-    "label": "TRANSLATE.UPDATE_SECTION",
-    "description": "TRANSLATE.UPDATE_DESCRIPTION",
-    "content": [
-      {
-        "id": "installed_version",
-        "type": "text",
-        "element": "input",
-        "label": "TRANSLATE.INSTALLED_VERSION_BUILD",
-        "value": "",
-        "attributes": [{"readonly": true}]
-      },
-      {
-        "id": "github_version",
-        "type": "text",
-        "element": "input",
-        "label": "TRANSLATE.GITHUB_VERSION_BUILD",
-        "value": "",
-        "attributes": [{"readonly": true}]
-      },
-      {
-        "id": "update_status",
-        "type": "text",
-        "element": "input",
-        "label": "TRANSLATE.UPDATE_STATUS_LABEL",
-        "value": "",
-        "attributes": [{"readonly": true}]
-      },
-      {
-        "id": "check_github_version",
-        "element": "button",
-        "label": "TRANSLATE.CHECK_VERSION_BUTTON",
-        "onClick": {
-          "type": "controller",
-          "endpoint": "music_service/yam",
-          "method": "checkGithubVersion"
-        }
-      },
-      {
-        "id": "update_github",
-        "element": "button",
-        "label": "TRANSLATE.UPDATE_BUTTON",
-        "onClick": {
-          "type": "controller",
-          "endpoint": "music_service/yam",
-          "method": "updateFromGithub"
-        }
-      }
-    ]
   }
   ]
 }

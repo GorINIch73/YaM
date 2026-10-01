@@ -6,25 +6,5 @@
   "hq": {
     "type": "boolean",
     "value": false
-  },
-  "lastUpdateStatus": {
-    "type": "string",
-    "value": ""
-  },
-  "lastUpdateDetails": {
-    "type": "string",
-    "value": ""
-  },
-  "githubVersion": {
-    "type": "string",
-    "value": ""
-  },
-  "githubBuild": {
-    "type": "string",
-    "value": ""
-  },
-  "installedBuild": {
-    "type": "string",
-    "value": ""
   }
 }

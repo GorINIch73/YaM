@@ -4,10 +4,7 @@ var libQ = require('kew');
 var fs=require('fs-extra');
 var config = new (require('v-conf'))();
 var exec = require('child_process').exec;
-var execFile = require('child_process').execFile;
 var execSync = require('child_process').execSync;
-var os = require('os');
-var path = require('path');
 var clientApi = require('yandex-music-client').YandexMusicClient;
 var querystring = require('querystring');
 var axios = require('axios');
@@ -34,9 +31,6 @@ function yandexMusic(context) {
     self.titles = {};
     self.playlists = {};
     self.current_track = false;
-    self.currentFavouriteLookup = '';
-    self.currentFavouriteApplied = '';
-    self.currentFavouriteValue = false;
     self.positionAtPrefetch = -1;
 
     self.proxy = new proxy(self.logger);
@@ -46,8 +40,6 @@ yandexMusic.prototype.onVolumioStart = function()
 {
     var self = this;
     var configFile = self.commandRouter.pluginManager.getConfigurationFile(this.context,'config.json');
-    self.configFile = configFile;
-    self.updateStateFile = path.join(path.dirname(configFile), 'update-status.json');
     self.config = new (require('v-conf'))();
     self.config.loadFile(configFile);
     self.loadI18n();
@@ -59,12 +51,6 @@ yandexMusic.prototype.onVolumioStart = function()
 
 yandexMusic.prototype.onStart = function() {
     var self = this;
-
-    var updateState = self.getUpdateState();
-    if (['restart_requested', 'restarting'].indexOf(updateState.status) !== -1) {
-        self.writeUpdateState('restart_completed', updateState.details);
-        self.commandRouter.pushToastMessage('success', self.getI18n('YAM_ACCOUNT'), self.getI18n('UPDATE_RESTART_COMPLETED') + (updateState.details ? ': ' + updateState.details : ''));
-    }
 
     self.addToBrowseSources();
     self.mpdPlugin = self.commandRouter.pluginManager.getPlugin('music_service', 'mpd');
@@ -198,35 +184,6 @@ yandexMusic.prototype.getUIConfig = function() {
                 uiconf.sections[0].onSave.method = 'accountLogout';
             }
             uiconf.sections[1].content[0].value = !!self.config.get('hq');
-
-            var currentVersion = self.getInstalledVersion();
-            var currentBuild = self.getInstalledBuild();
-            var githubVersion = self.config.get('githubVersion', '');
-            var githubBuild = self.config.get('githubBuild', '');
-            self.setUpdateFieldValue(uiconf, 'installed_version', self.formatVersionBuild(currentVersion, currentBuild));
-            self.setUpdateFieldValue(uiconf, 'github_version', githubVersion ? self.formatVersionBuild(githubVersion, githubBuild) : self.getI18n('UPDATE_VERSION_UNKNOWN'));
-
-            var updateStatus = self.config.get('lastUpdateStatus', '');
-            var savedUpdateState = self.getUpdateState();
-            updateStatus = savedUpdateState.status || updateStatus;
-            var updateDetails = savedUpdateState.details || self.config.get('lastUpdateDetails', '');
-            var inProgress = ['checking', 'downloading', 'installing', 'restart_requested', 'restarting'].indexOf(updateStatus) !== -1;
-            var failed = ['failed', 'restart_failed', 'check_failed'].indexOf(updateStatus) !== -1;
-            var statusText;
-            if (inProgress || failed) {
-                statusText = self.getI18n('UPDATE_STATUS_' + updateStatus);
-                if (updateDetails) {
-                    statusText += ': ' + updateDetails;
-                }
-            } else if (githubVersion && githubBuild) {
-                var isLatest = String(currentVersion) === String(githubVersion) && String(currentBuild) === String(githubBuild);
-                statusText = self.getI18n(isLatest ? 'UPDATE_STATUS_latest' : 'UPDATE_STATUS_available');
-            } else if (updateStatus === 'restart_completed') {
-                statusText = self.getI18n('UPDATE_STATUS_restart_completed');
-            } else {
-                statusText = self.getI18n('UPDATE_STATUS_check_required');
-            }
-            self.setUpdateFieldValue(uiconf, 'update_status', statusText);
             defer.resolve(uiconf);
         })
         .fail(function()
@@ -235,181 +192,6 @@ yandexMusic.prototype.getUIConfig = function() {
         });
 
     return defer.promise;
-};
-
-yandexMusic.prototype.setUpdateFieldValue = function(uiconf, fieldId, value) {
-    var section = uiconf.sections.filter(function(item) {
-        return item.id === 'section_update';
-    })[0];
-    if (!section) {
-        return;
-    }
-    var field = section.content.filter(function(item) {
-        return item.id === fieldId;
-    })[0];
-    if (field) {
-        field.value = value;
-    }
-};
-
-yandexMusic.prototype.getUpdateState = function() {
-    try {
-        if (this.updateStateFile && fs.existsSync(this.updateStateFile)) {
-            return fs.readJsonSync(this.updateStateFile);
-        }
-    } catch (err) {
-        this.logger.warn('Unable to read YaM update state', err.message || err);
-    }
-    return {
-        status: this.config.get('lastUpdateStatus', ''),
-        details: this.config.get('lastUpdateDetails', '')
-    };
-};
-
-yandexMusic.prototype.writeUpdateState = function(status, details) {
-    this.config.set('lastUpdateStatus', status);
-    this.config.set('lastUpdateDetails', details || '');
-    try {
-        if (this.updateStateFile) {
-            fs.writeJsonSync(this.updateStateFile, {
-                status: status,
-                details: details || '',
-                updatedAt: new Date().toISOString()
-            }, {spaces: 2});
-        }
-    } catch (err) {
-        this.logger.warn('Unable to save YaM update state', err.message || err);
-    }
-};
-
-yandexMusic.prototype.formatVersionBuild = function(version, build) {
-    return String(version) + ' (' + this.getI18n('BUILD_NUMBER') + ' ' + (build || this.getI18n('BUILD_UNKNOWN')) + ')';
-};
-
-yandexMusic.prototype.getInstalledVersion = function() {
-    try {
-        return fs.readJsonSync(path.join(__dirname, 'package.json')).version || this.getI18n('UPDATE_VERSION_UNKNOWN');
-    } catch (err) {
-        this.logger.warn('Unable to read installed YaM version', err.message || err);
-        return this.getI18n('UPDATE_VERSION_UNKNOWN');
-    }
-};
-
-yandexMusic.prototype.getInstalledBuild = function() {
-    // build-info.json is written by the updater from the exact GitHub commit
-    // passed to the installer. Check it first: v-conf may retain an empty
-    // schema default for installedBuild even after the updater persisted the
-    // build id to the config file.
-    try {
-        if (this.configFile) {
-            var markerPath = path.join(path.dirname(this.configFile), 'build-info.json');
-            var marker = fs.readJsonSync(markerPath);
-            if (marker.version === this.getInstalledVersion() && marker.build) {
-                return String(marker.build);
-            }
-        }
-    } catch (err) {
-        // The marker is optional for plugins installed before build tracking was added.
-    }
-
-    var configuredBuild = this.config.get('installedBuild', '');
-    if (configuredBuild && typeof configuredBuild === 'object') {
-        configuredBuild = configuredBuild.value;
-    }
-    if (configuredBuild) {
-        return String(configuredBuild);
-    }
-
-    // The update runner is a separate process, so read the persisted value as
-    // well as v-conf's in-memory value.
-    try {
-        if (this.configFile) {
-            var config = fs.readJsonSync(this.configFile);
-            var persistedBuild = config.installedBuild;
-            if (persistedBuild && typeof persistedBuild === 'object') {
-                persistedBuild = persistedBuild.value;
-            }
-            if (persistedBuild) {
-                return String(persistedBuild);
-            }
-        }
-    } catch (err) {
-        this.logger.warn('Unable to read installed YaM build from config', err.message || err);
-    }
-
-    try {
-        var gitBuild = execSync('git rev-parse --short=12 HEAD', {
-            cwd: __dirname,
-            timeout: 3000,
-            stdio: ['ignore', 'pipe', 'ignore']
-        }).toString().trim();
-        if (gitBuild) {
-            return gitBuild;
-        }
-    } catch (err) {
-        // Installed plugin packages often omit .git.
-    }
-
-    // Legacy fallback for installs made before build-info.json was introduced.
-    try {
-        var installedPackage = fs.readJsonSync(path.join(__dirname, 'package.json'));
-        if (installedPackage.build !== undefined && installedPackage.build !== null && installedPackage.build !== '') {
-            return String(installedPackage.build);
-        }
-    } catch (err) {
-        this.logger.warn('Unable to read installed YaM build number', err.message || err);
-    }
-
-    return '';
-};
-
-yandexMusic.prototype.checkGithubVersion = function() {
-    var self = this;
-    self.writeUpdateState('checking', '');
-    self.commandRouter.pushToastMessage('info', self.getI18n('YAM_ACCOUNT'), self.getI18n('VERSION_CHECK_STARTED'));
-    self.getUIConfig().then(function(uiconf) {
-        self.commandRouter.broadcastMessage('pushUiConfig', uiconf);
-    });
-
-    return axios.get('https://raw.githubusercontent.com/GorINIch73/YaM/main/package.json', { timeout: 15000 })
-        .then(function(resp) {
-            var packageInfo = resp.data || {};
-            if (!packageInfo.version) {
-                throw new Error('GitHub package.json does not contain a version');
-            }
-            return axios.get('https://api.github.com/repos/GorINIch73/YaM/commits/main', {
-                timeout: 15000,
-                headers: {'Accept': 'application/vnd.github+json'}
-            }).then(function(commitResp) {
-                var sha = commitResp.data && commitResp.data.sha;
-                if (!sha) {
-                    throw new Error('GitHub did not return the latest commit id');
-                }
-                return {version: String(packageInfo.version), build: String(sha).substring(0, 12)};
-            });
-        })
-        .then(function(remote) {
-            var version = remote.version;
-            var githubBuild = remote.build;
-            self.config.set('githubVersion', String(version));
-            self.config.set('githubBuild', githubBuild);
-            var installedBuild = self.getInstalledBuild();
-            var isLatest = String(self.getInstalledVersion()) === String(version) && String(installedBuild) === githubBuild;
-            self.writeUpdateState(isLatest ? 'latest' : 'available', '');
-            self.commandRouter.pushToastMessage('success', self.getI18n('YAM_ACCOUNT'), self.getI18n(isLatest ? 'UPDATE_STATUS_latest' : 'UPDATE_STATUS_available') + ': ' + self.formatVersionBuild(version, githubBuild));
-            return self.getUIConfig().then(function(uiconf) {
-                self.commandRouter.broadcastMessage('pushUiConfig', uiconf);
-            });
-        })
-        .catch(function(err) {
-            self.writeUpdateState('check_failed', String(err.message || err).slice(-300));
-            self.logger.warn('Unable to check YaM version on GitHub', err.message || err);
-            self.commandRouter.pushToastMessage('error', self.getI18n('YAM_ACCOUNT'), self.getI18n('VERSION_CHECK_FAILED'));
-            self.getUIConfig().then(function(uiconf) {
-                self.commandRouter.broadcastMessage('pushUiConfig', uiconf);
-            });
-            throw err;
-        });
 };
 
 yandexMusic.prototype.getConfigurationFiles = function() {
@@ -499,154 +281,6 @@ yandexMusic.prototype.configPlaybackSave = function(data) {
     return libQ.resolve();
 };
 
-yandexMusic.prototype.updateFromGithub = function() {
-    var self = this;
-    var inProgressStatuses = ['downloading', 'installing', 'restart_requested', 'restarting'];
-
-    if (self.updating || inProgressStatuses.indexOf(self.getUpdateState().status) !== -1) {
-        return libQ.reject(new Error('YaM update is already running'));
-    }
-    self.updating = true;
-
-    self.writeUpdateState('downloading', '');
-    self.commandRouter.pushToastMessage('info', self.getI18n('YAM_ACCOUNT'), self.getI18n('UPDATE_STARTED'));
-    self.getUIConfig().then(function(uiconf) {
-        self.commandRouter.broadcastMessage('pushUiConfig', uiconf);
-    }).fail(function(err) {
-        self.logger.warn('Unable to show YaM update progress', err);
-    });
-
-    return new Promise(function(resolve, reject) {
-        fs.mkdtemp(path.join(os.tmpdir(), 'yam-update-'), function(tempDirError, tempDir) {
-            if (tempDirError) {
-                reject(tempDirError);
-                return;
-            }
-
-            execFile('git', [
-                'clone', '--depth', '1', '--branch', 'main',
-                'https://github.com/GorINIch73/YaM.git', tempDir
-            ], { timeout: 5 * 60 * 1000, maxBuffer: 1024 * 1024 }, function(cloneError, stdout, stderr) {
-                if (cloneError) {
-                    cloneError.details = stderr || stdout || cloneError.details;
-                    fs.remove(tempDir, function() {});
-                    reject(cloneError);
-                    return;
-                }
-
-                var remoteVersion;
-                var remoteBuild;
-                var displayVersion;
-                try {
-                    var remotePackage = fs.readJsonSync(path.join(tempDir, 'package.json'));
-                    remoteVersion = remotePackage.version;
-                    remoteBuild = execSync('git rev-parse --short=12 HEAD', {
-                        cwd: tempDir,
-                        timeout: 5000,
-                        stdio: ['ignore', 'pipe', 'ignore']
-                    }).toString().trim();
-                    // Keep the displayed GitHub target and the value used by
-                    // the installer identical, even if the user skipped the
-                    // separate version check before pressing Update.
-                    self.config.set('githubVersion', String(remoteVersion));
-                    self.config.set('githubBuild', String(remoteBuild));
-                    self.pendingUpdateBuild = String(self.config.get('githubBuild', remoteBuild));
-                    displayVersion = self.formatVersionBuild(remoteVersion, self.pendingUpdateBuild);
-                } catch (versionError) {
-                    fs.remove(tempDir, function() {});
-                    reject(versionError);
-                    return;
-                }
-
-                self.writeUpdateState('installing', displayVersion);
-                self.getUIConfig().then(function(uiconf) {
-                    self.commandRouter.broadcastMessage('pushUiConfig', uiconf);
-                }).fail(function(err) {
-                    self.logger.warn('Unable to show YaM install progress', err);
-                });
-
-                var runnerPath = path.join(tempDir, 'update-runner.js');
-                if (!fs.existsSync(runnerPath) && fs.existsSync(path.join(__dirname, 'update-runner.js'))) {
-                    fs.copyFileSync(path.join(__dirname, 'update-runner.js'), runnerPath);
-                }
-                if (!fs.existsSync(runnerPath)) {
-                    var runnerError = new Error('Update runner is missing from the GitHub checkout');
-                    fs.remove(tempDir, function() {});
-                    reject(runnerError);
-                    return;
-                }
-
-                var configDir = path.dirname(self.configFile);
-                var unitName = 'yam-plugin-update-' + Date.now();
-                execFile('/usr/bin/sudo', [
-                    '/usr/bin/systemd-run',
-                    '--unit=' + unitName,
-                    '--collect',
-                    '--uid=volumio',
-                    '--working-directory=' + tempDir,
-                    '--setenv=HOME=/home/volumio',
-                    '--setenv=PATH=' + (process.env.PATH || '/usr/local/bin:/usr/bin:/bin'),
-                    process.execPath,
-                    runnerPath,
-                    configDir,
-                    tempDir,
-                    String(remoteVersion),
-                    self.pendingUpdateBuild,
-                    displayVersion
-                ], {timeout: 30000, maxBuffer: 1024 * 1024}, function(scheduleError, stdout, stderr) {
-                    self.updating = false;
-                    if (scheduleError) {
-                        scheduleError.details = stderr || stdout || scheduleError.details;
-                        fs.remove(tempDir, function() {});
-                        reject(scheduleError);
-                        return;
-                    }
-
-                    self.logger.info('YaM update job scheduled as ' + unitName + ': ' + (stdout || '').trim());
-                    self.commandRouter.pushToastMessage('info', self.getI18n('YAM_ACCOUNT'), self.getI18n('UPDATE_INSTALLING'));
-                    self.monitorUpdateJob();
-                    resolve();
-                });
-            });
-        });
-    }).catch(function(err) {
-        self.updating = false;
-        self.writeUpdateState('failed', String(err.details || err.stderr || err.message || err).slice(-500));
-        self.logger.error('Unable to prepare YaM update from GitHub', err);
-        self.commandRouter.pushToastMessage('error', self.getI18n('YAM_ACCOUNT'), self.getI18n('UPDATE_FAILED') + ': ' + String(err.details || err.stderr || err.message || err).slice(-180));
-        throw err;
-    });
-};
-
-yandexMusic.prototype.monitorUpdateJob = function() {
-    var self = this;
-    var installNotified = false;
-    var restartNotified = false;
-    var timer = setInterval(function() {
-        var state = self.getUpdateState();
-        if (state.status === 'restart_requested' && !installNotified) {
-            installNotified = true;
-            if (self.pendingUpdateBuild) {
-                self.config.set('installedBuild', self.pendingUpdateBuild);
-            }
-            self.commandRouter.pushToastMessage('success', self.getI18n('YAM_ACCOUNT'), self.getI18n('UPDATE_SUCCESS') + (state.details ? ' ' + state.details : ''));
-        }
-        if (state.status === 'restarting' && !restartNotified) {
-            restartNotified = true;
-            self.commandRouter.pushToastMessage('info', self.getI18n('YAM_ACCOUNT'), self.getI18n('UPDATE_RESTARTING'));
-        }
-        if (['failed', 'restart_failed'].indexOf(state.status) !== -1) {
-            self.commandRouter.pushToastMessage('error', self.getI18n('YAM_ACCOUNT'), self.getI18n(state.status === 'failed' ? 'UPDATE_FAILED' : 'UPDATE_RESTART_FAILED') + (state.details ? ': ' + state.details : ''));
-            clearInterval(timer);
-        } else if (state.status === 'restart_completed') {
-            clearInterval(timer);
-        }
-    }, 1000);
-    if (timer.unref) {
-        timer.unref();
-    }
-};
-
 // Playback Controls ---------------------------------------------------------------------------------------
 
 yandexMusic.prototype.addToBrowseSources = function () {
@@ -663,142 +297,6 @@ yandexMusic.prototype.addToBrowseSources = function () {
 yandexMusic.prototype.removeFromBrowseSources = function () {
 
     this.commandRouter.volumioRemoveToBrowseSources(this.getI18n('YM'));
-};
-
-// Resolve the Yandex track id from a Volumio item. Track ids in YaM URIs may
-// include an album id and a playlist suffix: trackId:albumId@playlistId.
-yandexMusic.prototype.getTrackIdFromFavourite = function (data) {
-    var uri = (data && typeof data.uri == 'string') ? data.uri : '';
-    var match = uri.match(/^yam\/track\/([^/?#]+)/);
-    if (match) {
-        return match[1].split('@')[0].split(':')[0];
-    }
-
-    // Volumio can pass MPD's resolved audio URI for the currently playing
-    // item. Keep the original YaM id captured before resolving that URL.
-    if (this.current_track && this.current_track.track_id) {
-        return this.current_track.track_id.split('@')[0].split(':')[0];
-    }
-
-    return null;
-};
-
-yandexMusic.prototype.setTrackFavourite = function (data, liked) {
-    var self = this;
-    var trackId = self.getTrackIdFromFavourite(data);
-
-    if (!trackId) {
-        return libQ.reject(new Error('Unable to determine Yandex Music track id'));
-    }
-
-    return self.checkUid().then(function (uid) {
-        if (!uid) {
-            throw new Error('Yandex Music account is not authorized');
-        }
-
-        var action = liked ? 'add-multiple' : 'remove';
-        var headers = Object.assign({}, self.client.request.config.HEADERS, {
-            'Content-Type': 'application/x-www-form-urlencoded'
-        });
-        return axios.post(
-            'https://api.music.yandex.net/users/' + encodeURIComponent(uid) + '/likes/tracks/' + action,
-            querystring.stringify({'track-ids': trackId}),
-            { headers: headers, timeout: 15000 }
-        ).then(function(resp) {
-            if (resp.data && resp.data.error) {
-                throw new Error(resp.data.error.message || 'Yandex Music rejected the like');
-            }
-            delete self.client._yamLikedTrackCache;
-            var currentTrackId = self.getTrackIdFromFavourite({uri: self.current_track && self.current_track.uri});
-            if (currentTrackId && self.trackIdsMatch(currentTrackId, trackId)) {
-                self.applyCurrentTrackFavourite(liked);
-                return {
-                    service: 'yam',
-                    uri: self.current_track.uri,
-                    favourite: !!liked
-                };
-            }
-            return undefined;
-        });
-    }).then(function (result) {
-        self.logger.info((liked ? 'Added track to' : 'Removed track from') + ' Yandex Music likes: ' + trackId);
-        self.commandRouter.pushToastMessage('success', self.getI18n('YAM_ACCOUNT'), self.getI18n(liked ? 'LIKE_SENT' : 'LIKE_REMOVED'));
-        return result;
-    }).catch(function(err) {
-        self.logger.error('Unable to sync YaM like with Yandex Music', err);
-        self.commandRouter.pushToastMessage('error', self.getI18n('YAM_ACCOUNT'), self.getI18n('LIKE_FAILED'));
-        throw err;
-    });
-};
-
-yandexMusic.prototype.trackIdsMatch = function(left, right) {
-    function baseTrackId(value) {
-        return String(value || '').split('@')[0].split(':')[0];
-    }
-    return !!baseTrackId(left) && baseTrackId(left) === baseTrackId(right);
-};
-
-yandexMusic.prototype.applyCurrentTrackFavourite = function(favourite) {
-    var self = this;
-    if (!self.current_track || !self.current_track.uri) return;
-
-    var sourceUri = self.current_track.uri;
-    var trackId = self.getTrackIdFromFavourite({uri: sourceUri});
-    if (!trackId) return;
-
-    self.currentFavouriteApplied = trackId;
-    self.currentFavouriteValue = !!favourite;
-    self.emitCurrentTrackFavourite(trackId, self.currentFavouriteValue);
-};
-
-yandexMusic.prototype.emitCurrentTrackFavourite = function(trackId, favourite) {
-    var self = this;
-    if (!self.current_track || !self.current_track.uri || !trackId ||
-        typeof self.commandRouter.emitFavourites !== 'function') return;
-
-    // Volumio publishes its local-favourites result after every player state.
-    // Emit the Yandex account status just after that event so it remains the
-    // visible heart state for the current source track.
-    setTimeout(function() {
-        if (!self.current_track || !self.trackIdsMatch(self.getTrackIdFromFavourite({uri: self.current_track.uri}), trackId)) return;
-        self.commandRouter.emitFavourites({
-            service: 'yam',
-            uri: self.current_track.uri,
-            favourite: !!favourite
-        });
-    }, 100);
-};
-
-yandexMusic.prototype.refreshCurrentTrackFavourite = function() {
-    var self = this;
-    if (!self.current_track || !self.current_track.uri || !self.uid) return;
-
-    var trackId = self.getTrackIdFromFavourite({uri: self.current_track.uri});
-    if (!trackId) return;
-    if (self.currentFavouriteApplied === trackId) {
-        self.emitCurrentTrackFavourite(trackId, self.currentFavouriteValue);
-        return;
-    }
-    if (self.currentFavouriteLookup === trackId) return;
-    self.currentFavouriteLookup = trackId;
-
-    var likes = new playlist(self.client, self.uid);
-    likes.getLikedTrackIds().then(function(ids) {
-        if (!self.current_track || !self.trackIdsMatch(self.getTrackIdFromFavourite({uri: self.current_track.uri}), trackId)) return;
-        self.currentFavouriteLookup = '';
-        self.applyCurrentTrackFavourite(!!ids[trackId]);
-    }).catch(function(err) {
-        if (self.currentFavouriteLookup === trackId) self.currentFavouriteLookup = '';
-        self.logger.warn('Unable to check current YaM track favourite status: ' + (err.message || err));
-    });
-};
-
-yandexMusic.prototype.addToFavourites = function (data) {
-    return this.setTrackFavourite(data, true);
-};
-
-yandexMusic.prototype.removeFromFavourites = function (data) {
-    return this.setTrackFavourite(data, false);
 };
 
 yandexMusic.prototype.handleBrowseUri = function (curUri) {
@@ -1012,31 +510,35 @@ yandexMusic.prototype.browseMyPlaylists = function () {
     var self = this;
     var defer = libQ.defer();
 
-    var likesId = self.uid + ':3';
-    var response = {
-        navigation: {
-            lists: [
-                {
-                    "availableListViews": ["grid", "list"],
-                    "type": "title",
-                    "title": self.getI18n('MY_PLAYLISTS'),
-                    "items": [{
-                        id: likesId,
-                        service: 'yam',
-                        type: 'playlist',
-                        name: self.getI18n('MY_LIKES'),
-                        title: self.getI18n('MY_LIKES'),
-                        albumart: 'https://avatars.yandex.net/get-music-user-playlist/11418140/favorit-playlist-cover.bb48fdb9b9f4/200x200',
-                        uri: 'yam/playlist/' + likesId
-                    }]
-                }
-            ]
-        }
-    };
-
-    self.titles[likesId] = self.getI18n('MY_LIKES');
-
     self.client.user.getPlayLists(self.uid).then(function (resp) {
+
+        var response = {
+            navigation: {
+                lists: [
+                    {
+                        "availableListViews": [
+                            "grid","list"
+                        ],
+                        "type": "title",
+                        "title": self.getI18n('MY_PLAYLISTS'),
+                        "items": [
+                            {
+                                id: self.uid + ':3',
+                                service: 'yam',
+                                type: 'playlist',
+                                name: self.getI18n('MY_LIKES'),
+                                title: self.getI18n('MY_LIKES'),
+                                albumart: 'https://avatars.yandex.net/get-music-user-playlist/11418140/favorit-playlist-cover.bb48fdb9b9f4/200x200',
+                                uri: 'yam/playlist/' + self.uid + ':3',
+                            },
+                        ],
+                    }
+                ]
+            }
+        };
+
+        // Likes playlist: kind=3
+        self.titles[self.uid + ':3'] = self.getI18n('MY_LIKES');
 
         var p = new playlist(self.client, self.uid);
         var blocks = resp.result.map(function (x) { return p.landingToPlaylist(x); });
@@ -1047,10 +549,7 @@ yandexMusic.prototype.browseMyPlaylists = function () {
 
         defer.resolve(response);
     }).catch(function (err) {
-        self.logger.error('Unable to load YaM playlists', err);
-        // Keep the likes entry visible even if the separate playlists call
-        // fails; its tracks are loaded independently from the likes API.
-        defer.resolve(response);
+        defer.reject(new Error());
     });
 
     return defer.promise;
@@ -1065,7 +564,6 @@ yandexMusic.prototype.browseRadio = function (playlist_id) {
     self.playlists[playlist_id].title = self.titles[playlist_id];
 
     self.playlists[playlist_id].fetch().then(function (tracks) {
-        return self.playlists[playlist_id].markFavouriteStates(tracks).then(function () {
         var response = {
             navigation: {
                 lists: [
@@ -1079,7 +577,6 @@ yandexMusic.prototype.browseRadio = function (playlist_id) {
             }
         };
         defer.resolve(response);
-        });
     }).fail(function (err) {
         defer.reject(new Error());
     });
@@ -1097,7 +594,6 @@ yandexMusic.prototype.browsePlaylist = function (playlist_id) {
     }
 
     self.playlists[playlist_id].fetch().then(function (tracks) {
-        return self.playlists[playlist_id].markFavouriteStates(tracks).then(function () {
         var response = {
             navigation: {
                 lists: [
@@ -1111,7 +607,6 @@ yandexMusic.prototype.browsePlaylist = function (playlist_id) {
             }
         };
         defer.resolve(response);
-        });
     }).fail(function (err) {
         defer.reject(new Error());
     });
@@ -1130,7 +625,6 @@ yandexMusic.prototype.browseArtist = function (playlist_id) {
     }
 
     self.playlists[internal_id].fetch().then(function (tracks) {
-        return self.playlists[internal_id].markFavouriteStates(tracks).then(function () {
         var response = {
             navigation: {
                 lists: [
@@ -1144,7 +638,6 @@ yandexMusic.prototype.browseArtist = function (playlist_id) {
             }
         };
         defer.resolve(response);
-        });
     }).fail(function (err) {
         defer.reject(new Error());
     });
@@ -1161,7 +654,6 @@ yandexMusic.prototype.browseAlbum = function (playlist_id) {
     }
 
     self.playlists[playlist_id].fetch().then(function (tracks) {
-        return self.playlists[playlist_id].markFavouriteStates(tracks).then(function () {
         var response = {
             navigation: {
                 lists: [
@@ -1175,7 +667,6 @@ yandexMusic.prototype.browseAlbum = function (playlist_id) {
             }
         };
         defer.resolve(response);
-        });
     }).fail(function (err) {
         defer.reject(new Error());
     });
@@ -1183,20 +674,10 @@ yandexMusic.prototype.browseAlbum = function (playlist_id) {
     return defer.promise;
 };
 
-yandexMusic.prototype.onTrackChanging = function(track, isPrefetch) {
+yandexMusic.prototype.onTrackChanging = function(track) {
     var self = this;
 
     var now = new Date().getTime();
-
-    if (isPrefetch) {
-        var upcomingTrackId = track.uri.split('/').pop();
-        var upcomingIds = upcomingTrackId.split('@');
-        self.prefetched_track = Object.assign({}, track, {
-            track_id: upcomingTrackId,
-            playlist_id: upcomingIds.length > 1 ? upcomingIds[1] : ''
-        });
-        return;
-    }
 
     if (self.current_track) {
         var p = self.playlists[self.current_track.playlist_id];
@@ -1225,15 +706,10 @@ yandexMusic.prototype.onTrackChanging = function(track, isPrefetch) {
     self.current_track.track_id = track_id;
     self.current_track.playlist_id = playlist_id;
     self.current_track.start = now;
-    self.currentFavouriteLookup = '';
-    self.currentFavouriteApplied = '';
-    self.currentFavouriteValue = false;
 };
 
-yandexMusic.prototype.onTrackChanged = function(isPrefetch) {
+yandexMusic.prototype.onTrackChanged = function() {
     var self = this;
-
-    if (isPrefetch) return;
 
     if (self.current_track && self.current_track.track_id && self.current_track.playlist_id) {
         var p = self.playlists[self.current_track.playlist_id];
@@ -1247,7 +723,6 @@ yandexMusic.prototype.onTrackChanged = function(isPrefetch) {
 yandexMusic.prototype.clearAddPlayTrack = function(track) {
     var self = this;
 
-    self.prefetched_track = null;
     self.onTrackChanging(track);
 
     var track_id = track.uri.split('/').pop();
@@ -1296,7 +771,7 @@ yandexMusic.prototype.clearAddPlayTrack = function(track) {
 yandexMusic.prototype.prefetch = function(track) {
     var self = this;
 
-    self.onTrackChanging(track, true);
+    self.onTrackChanging(track);
 
     var track_id = track.uri.split('/').pop();
 
@@ -1322,7 +797,7 @@ yandexMusic.prototype.prefetch = function(track) {
             return self.mpdPlugin.sendMpdCommand('consume 1', []);
         })
         .then(function () {
-            self.onTrackChanged(true);
+            self.onTrackChanged();
             return libQ.resolve();
         });
 }
@@ -1330,19 +805,6 @@ yandexMusic.prototype.prefetch = function(track) {
 // volumioPushState callback
 yandexMusic.prototype.onPushState = function (state) {
     var self = this;
-    if (state && typeof state === 'object') {
-        self.lastPlaybackState = state;
-    }
-
-    if (self.prefetched_track && state && state.title === self.prefetched_track.title &&
-        (!state.artist || state.artist === self.prefetched_track.artist)) {
-        var nowPlayingTrack = self.prefetched_track;
-        self.prefetched_track = null;
-        self.onTrackChanging(nowPlayingTrack);
-        self.onTrackChanged();
-    }
-
-    self.refreshCurrentTrackFavourite();
 
     // Volumio 3 increasePlaybackTimer set isConsume to false,
     // and prefetched track does not display metadata
@@ -1509,21 +971,7 @@ yandexMusic.prototype.explodeUri = function(curUri) {
         response = libQ.reject();
     }
 
-    // Volumio expands a selected URI again while building the play queue.
-    // Browse results are annotated with Yandex likes, but this second fetch
-    // can return fresh track objects without the favourite flag. Add it here
-    // as well so the queue/current-player item carries the account status.
-    if (!self.client) {
-        return response;
-    }
-
-    return libQ.resolve(response).then(function (tracks) {
-        return self.checkUid().then(function (uid) {
-            if (!uid) return tracks;
-            var likes = new playlist(self.client, uid, null, null, self.logger);
-            return likes.markFavouriteStates(tracks);
-        });
-    });
+    return response;
 };
 
 yandexMusic.prototype.getAlbumArt = function (data, path) {
@@ -1620,9 +1068,7 @@ yandexMusic.prototype._search = function (text, type) {
             }
         }
 
-        p.markFavouriteStates(response.items).then(function () {
-            defer.resolve(response);
-        });
+        defer.resolve(response);
     }).catch(function (err) {
         defer.reject(new Error());
     });
