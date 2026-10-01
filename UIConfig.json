@@ -87,6 +87,24 @@
         "value": false
       }
     ]
+  },
+  {
+    "id": "section_update",
+    "element": "section",
+    "label": "TRANSLATE.UPDATE_SECTION",
+    "description": "TRANSLATE.UPDATE_DESCRIPTION",
+    "onSave": {
+      "type": "controller",
+      "endpoint": "music_service/yam",
+      "method": "updateFromGithub"
+    },
+    "content": [
+      {
+        "id": "update_from_github",
+        "type": "button",
+        "label": "TRANSLATE.UPDATE_BUTTON"
+      }
+    ]
   }
   ]
 }

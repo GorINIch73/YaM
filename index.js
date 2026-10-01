@@ -4,7 +4,10 @@ var libQ = require('kew');
 var fs=require('fs-extra');
 var config = new (require('v-conf'))();
 var exec = require('child_process').exec;
+var execFile = require('child_process').execFile;
 var execSync = require('child_process').execSync;
+var os = require('os');
+var path = require('path');
 var clientApi = require('yandex-music-client').YandexMusicClient;
 var querystring = require('querystring');
 var axios = require('axios');
@@ -281,6 +284,65 @@ yandexMusic.prototype.configPlaybackSave = function(data) {
     return libQ.resolve();
 };
 
+yandexMusic.prototype.updateFromGithub = function() {
+    var self = this;
+
+    if (self.updating) {
+        return libQ.reject(new Error('YaM update is already running'));
+    }
+    self.updating = true;
+
+    self.commandRouter.pushToastMessage('info', self.getI18n('YAM_ACCOUNT'), self.getI18n('UPDATE_STARTED'));
+
+    return new Promise(function(resolve, reject) {
+        fs.mkdtemp(path.join(os.tmpdir(), 'yam-update-'), function(tempDirError, tempDir) {
+            if (tempDirError) {
+                reject(tempDirError);
+                return;
+            }
+
+            execFile('git', [
+                'clone', '--depth', '1', '--branch', 'main',
+                'https://github.com/GorINIch73/YaM.git', tempDir
+            ], { timeout: 5 * 60 * 1000, maxBuffer: 1024 * 1024 }, function(cloneError, stdout, stderr) {
+                if (cloneError) {
+                    fs.remove(tempDir, function() {});
+                    reject(cloneError);
+                    return;
+                }
+
+                execFile('volumio', ['plugin', 'update'], {
+                    cwd: tempDir,
+                    timeout: 15 * 60 * 1000,
+                    maxBuffer: 4 * 1024 * 1024
+                }, function(updateError, updateStdout, updateStderr) {
+                    fs.remove(tempDir, function(cleanupError) {
+                        if (cleanupError) {
+                            self.logger.warn('Unable to remove YaM update directory', cleanupError);
+                        }
+
+                        self.updating = false;
+                        if (updateError) {
+                            self.logger.error('Unable to update YaM from GitHub', updateStderr || updateError);
+                            reject(updateError);
+                            return;
+                        }
+
+                        self.logger.info('YaM updated from GitHub: ' + (updateStdout || '').trim());
+                        self.commandRouter.pushToastMessage('success', self.getI18n('YAM_ACCOUNT'), self.getI18n('UPDATE_SUCCESS'));
+                        resolve();
+                    });
+                });
+            });
+        });
+    }).catch(function(err) {
+        self.updating = false;
+        self.logger.error('Unable to prepare YaM update from GitHub', err);
+        self.commandRouter.pushToastMessage('error', self.getI18n('YAM_ACCOUNT'), self.getI18n('UPDATE_FAILED'));
+        throw err;
+    });
+};
+
 // Playback Controls ---------------------------------------------------------------------------------------
 
 yandexMusic.prototype.addToBrowseSources = function () {
@@ -297,6 +359,58 @@ yandexMusic.prototype.addToBrowseSources = function () {
 yandexMusic.prototype.removeFromBrowseSources = function () {
 
     this.commandRouter.volumioRemoveToBrowseSources(this.getI18n('YM'));
+};
+
+// Resolve the Yandex track id from a Volumio item. Track ids in YaM URIs may
+// include an album id and a playlist suffix: trackId:albumId@playlistId.
+yandexMusic.prototype.getTrackIdFromFavourite = function (data) {
+    var uri = (data && typeof data.uri == 'string') ? data.uri : '';
+    var match = uri.match(/^yam\/track\/([^/?#]+)/);
+    if (match) {
+        return match[1].split('@')[0];
+    }
+
+    // Volumio can pass MPD's resolved audio URI for the currently playing
+    // item. Keep the original YaM id captured before resolving that URL.
+    if (this.current_track && this.current_track.track_id) {
+        return this.current_track.track_id.split('@')[0];
+    }
+
+    return null;
+};
+
+yandexMusic.prototype.setTrackFavourite = function (data, liked) {
+    var self = this;
+    var trackId = self.getTrackIdFromFavourite(data);
+
+    if (!trackId) {
+        return libQ.reject(new Error('Unable to determine Yandex Music track id'));
+    }
+
+    return self.checkUid().then(function (uid) {
+        if (!uid) {
+            throw new Error('Yandex Music account is not authorized');
+        }
+
+        var action = liked ? self.client.tracks.likeTracks : self.client.tracks.removeLikedTracks;
+        return action.call(self.client.tracks, uid, [trackId]);
+    }).then(function (result) {
+        // The likes playlist is cached by Playlist; clear it so the next
+        // browse reflects the account's updated library.
+        var likesId = self.uid + ':3';
+        if (self.playlists[likesId]) {
+            self.playlists[likesId].tracks = [];
+        }
+        return result;
+    });
+};
+
+yandexMusic.prototype.addToFavourites = function (data) {
+    return this.setTrackFavourite(data, true);
+};
+
+yandexMusic.prototype.removeFromFavourites = function (data) {
+    return this.setTrackFavourite(data, false);
 };
 
 yandexMusic.prototype.handleBrowseUri = function (curUri) {
