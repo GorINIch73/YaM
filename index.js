@@ -187,7 +187,19 @@ yandexMusic.prototype.getUIConfig = function() {
                 uiconf.sections[0].onSave.method = 'accountLogout';
             }
             uiconf.sections[1].content[0].value = !!self.config.get('hq');
-            defer.resolve(uiconf);
+
+            var currentVersion = self.getInstalledVersion();
+            uiconf.sections[2].content[0].value = currentVersion;
+            axios.get('https://raw.githubusercontent.com/GorINIch73/YaM/main/package.json', { timeout: 5000 })
+                .then(function(resp) {
+                    uiconf.sections[2].content[1].value = (resp.data && resp.data.version) ? resp.data.version : self.getI18n('UPDATE_VERSION_UNKNOWN');
+                    defer.resolve(uiconf);
+                })
+                .catch(function(err) {
+                    self.logger.warn('Unable to check YaM version on GitHub', err.message || err);
+                    uiconf.sections[2].content[1].value = self.getI18n('UPDATE_VERSION_UNKNOWN');
+                    defer.resolve(uiconf);
+                });
         })
         .fail(function()
         {
@@ -195,6 +207,15 @@ yandexMusic.prototype.getUIConfig = function() {
         });
 
     return defer.promise;
+};
+
+yandexMusic.prototype.getInstalledVersion = function() {
+    try {
+        return fs.readJsonSync(path.join(__dirname, 'package.json')).version || this.getI18n('UPDATE_VERSION_UNKNOWN');
+    } catch (err) {
+        this.logger.warn('Unable to read installed YaM version', err.message || err);
+        return this.getI18n('UPDATE_VERSION_UNKNOWN');
+    }
 };
 
 yandexMusic.prototype.getConfigurationFiles = function() {
@@ -311,6 +332,15 @@ yandexMusic.prototype.updateFromGithub = function() {
                     return;
                 }
 
+                var remoteVersion;
+                try {
+                    remoteVersion = fs.readJsonSync(path.join(tempDir, 'package.json')).version;
+                } catch (versionError) {
+                    fs.remove(tempDir, function() {});
+                    reject(versionError);
+                    return;
+                }
+
                 execFile('volumio', ['plugin', 'update'], {
                     cwd: tempDir,
                     timeout: 15 * 60 * 1000,
@@ -329,7 +359,12 @@ yandexMusic.prototype.updateFromGithub = function() {
                         }
 
                         self.logger.info('YaM updated from GitHub: ' + (updateStdout || '').trim());
-                        self.commandRouter.pushToastMessage('success', self.getI18n('YAM_ACCOUNT'), self.getI18n('UPDATE_SUCCESS'));
+                        self.commandRouter.pushToastMessage('success', self.getI18n('YAM_ACCOUNT'), self.getI18n('UPDATE_SUCCESS') + ' ' + remoteVersion);
+                        self.getUIConfig().then(function(uiconf) {
+                            self.commandRouter.broadcastMessage('pushUiConfig', uiconf);
+                        }).fail(function(err) {
+                            self.logger.warn('Unable to refresh YaM settings after update', err);
+                        });
                         resolve();
                     });
                 });

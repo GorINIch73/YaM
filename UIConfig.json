@@ -98,11 +98,28 @@
       "endpoint": "music_service/yam",
       "method": "updateFromGithub"
     },
+    "content": [
+      {
+        "id": "installed_version",
+        "type": "text",
+        "element": "input",
+        "label": "TRANSLATE.INSTALLED_VERSION",
+        "value": "",
+        "attributes": [{"readonly": true}]
+      },
+      {
+        "id": "github_version",
+        "type": "text",
+        "element": "input",
+        "label": "TRANSLATE.GITHUB_VERSION",
+        "value": "",
+        "attributes": [{"readonly": true}]
+      }
+    ],
     "saveButton": {
       "label": "TRANSLATE.UPDATE_BUTTON",
       "data": []
-    },
-    "content": []
+    }
   }
   ]
 }
