@@ -1497,7 +1497,21 @@ yandexMusic.prototype.explodeUri = function(curUri) {
         response = libQ.reject();
     }
 
-    return response;
+    // Volumio expands a selected URI again while building the play queue.
+    // Browse results are annotated with Yandex likes, but this second fetch
+    // can return fresh track objects without the favourite flag. Add it here
+    // as well so the queue/current-player item carries the account status.
+    if (!self.client) {
+        return response;
+    }
+
+    return libQ.resolve(response).then(function (tracks) {
+        return self.checkUid().then(function (uid) {
+            if (!uid) return tracks;
+            var likes = new playlist(self.client, uid, null, null, self.logger);
+            return likes.markFavouriteStates(tracks);
+        });
+    });
 };
 
 yandexMusic.prototype.getAlbumArt = function (data, path) {
