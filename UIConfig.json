@@ -124,10 +124,34 @@
         "attributes": [{"readonly": true}]
       },
       {
+        "id": "update_status",
+        "type": "text",
+        "element": "input",
+        "label": "TRANSLATE.UPDATE_STATUS_LABEL",
+        "value": "",
+        "attributes": [{"readonly": true}]
+      },
+      {
         "id": "version_check",
         "type": "text",
         "element": "input",
         "label": "TRANSLATE.VERSION_CHECKED_AT",
+        "value": "",
+        "attributes": [{"readonly": true}]
+      },
+      {
+        "id": "installed_build",
+        "type": "text",
+        "element": "input",
+        "label": "TRANSLATE.INSTALLED_BUILD",
+        "value": "",
+        "attributes": [{"readonly": true}]
+      },
+      {
+        "id": "github_build",
+        "type": "text",
+        "element": "input",
+        "label": "TRANSLATE.GITHUB_BUILD",
         "value": "",
         "attributes": [{"readonly": true}]
       },

@@ -11,11 +11,27 @@
     "type": "string",
     "value": ""
   },
+  "lastUpdateBuild": {
+    "type": "string",
+    "value": ""
+  },
   "lastUpdateAt": {
     "type": "string",
     "value": ""
   },
+  "lastUpdateStatus": {
+    "type": "string",
+    "value": ""
+  },
   "githubVersion": {
+    "type": "string",
+    "value": ""
+  },
+  "githubBuild": {
+    "type": "string",
+    "value": ""
+  },
+  "installedBuild": {
     "type": "string",
     "value": ""
   },

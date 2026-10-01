@@ -191,12 +191,18 @@ yandexMusic.prototype.getUIConfig = function() {
             var currentVersion = self.getInstalledVersion();
             uiconf.sections[2].content[0].value = currentVersion;
             var lastVersion = self.config.get('lastUpdateVersion', '');
+            var lastBuild = self.config.get('lastUpdateBuild', '');
             var lastUpdatedAt = self.config.get('lastUpdateAt', '');
-            uiconf.sections[2].content[2].value = lastVersion ? (lastVersion + (lastUpdatedAt ? ' — ' + lastUpdatedAt : '')) : self.getI18n('UPDATE_NEVER');
+            uiconf.sections[2].content[2].value = lastVersion ? (lastVersion + (lastBuild ? ' (' + lastBuild + ')' : '') + (lastUpdatedAt ? ' — ' + lastUpdatedAt : '')) : self.getI18n('UPDATE_NEVER');
+            var updateStatus = self.config.get('lastUpdateStatus', '');
+            uiconf.sections[2].content[3].value = updateStatus ? self.getI18n('UPDATE_STATUS_' + updateStatus) : self.getI18n('UPDATE_STATUS_NONE');
             var githubVersion = self.config.get('githubVersion', '');
+            var githubBuild = self.config.get('githubBuild', '');
             var checkedAt = self.config.get('githubVersionCheckedAt', '');
             uiconf.sections[2].content[1].value = githubVersion || self.getI18n('UPDATE_VERSION_UNKNOWN');
-            uiconf.sections[2].content[3].value = checkedAt || self.getI18n('VERSION_NOT_CHECKED');
+            uiconf.sections[2].content[4].value = checkedAt || self.getI18n('VERSION_NOT_CHECKED');
+            uiconf.sections[2].content[5].value = self.getInstalledBuild() || self.getI18n('UPDATE_VERSION_UNKNOWN');
+            uiconf.sections[2].content[6].value = githubBuild || self.getI18n('UPDATE_VERSION_UNKNOWN');
             defer.resolve(uiconf);
         })
         .fail(function()
@@ -216,21 +222,45 @@ yandexMusic.prototype.getInstalledVersion = function() {
     }
 };
 
+yandexMusic.prototype.getInstalledBuild = function() {
+    var storedBuild = this.config.get('installedBuild', '');
+    if (storedBuild) {
+        return storedBuild;
+    }
+
+    try {
+        return execSync('git rev-parse --short=12 HEAD', {
+            cwd: __dirname,
+            timeout: 3000,
+            stdio: ['ignore', 'pipe', 'ignore']
+        }).toString().trim();
+    } catch (err) {
+        return '';
+    }
+};
+
 yandexMusic.prototype.checkGithubVersion = function() {
     var self = this;
     self.commandRouter.pushToastMessage('info', self.getI18n('YAM_ACCOUNT'), self.getI18n('VERSION_CHECK_STARTED'));
 
-    return axios.get('https://raw.githubusercontent.com/GorINIch73/YaM/main/package.json', { timeout: 15000 })
-        .then(function(resp) {
-            var version = resp.data && resp.data.version;
-            if (!version) {
+    return Promise.all([
+        axios.get('https://raw.githubusercontent.com/GorINIch73/YaM/main/package.json', { timeout: 15000 }),
+        axios.get('https://api.github.com/repos/GorINIch73/YaM/commits/main', {
+            timeout: 15000,
+            headers: {'Accept': 'application/vnd.github+json'}
+        })
+    ]).then(function(responses) {
+            var version = responses[0].data && responses[0].data.version;
+            var build = responses[1].data && responses[1].data.sha;
+            if (!version || !build) {
                 throw new Error('GitHub package.json does not contain a version');
             }
 
             var checkedAt = new Date().toISOString();
             self.config.set('githubVersion', String(version));
+            self.config.set('githubBuild', String(build).substring(0, 12));
             self.config.set('githubVersionCheckedAt', checkedAt);
-            self.commandRouter.pushToastMessage('success', self.getI18n('YAM_ACCOUNT'), self.getI18n('VERSION_CHECK_SUCCESS') + ' ' + version);
+            self.commandRouter.pushToastMessage('success', self.getI18n('YAM_ACCOUNT'), self.getI18n('VERSION_CHECK_SUCCESS') + ' ' + version + ' (' + String(build).substring(0, 12) + ')');
             return self.getUIConfig().then(function(uiconf) {
                 self.commandRouter.broadcastMessage('pushUiConfig', uiconf);
             });
@@ -357,8 +387,14 @@ yandexMusic.prototype.updateFromGithub = function() {
                 }
 
                 var remoteVersion;
+                var remoteBuild;
                 try {
                     remoteVersion = fs.readJsonSync(path.join(tempDir, 'package.json')).version;
+                    remoteBuild = execSync('git rev-parse --short=12 HEAD', {
+                        cwd: tempDir,
+                        timeout: 5000,
+                        stdio: ['ignore', 'pipe', 'ignore']
+                    }).toString().trim();
                 } catch (versionError) {
                     fs.remove(tempDir, function() {});
                     reject(versionError);
@@ -385,8 +421,12 @@ yandexMusic.prototype.updateFromGithub = function() {
                         self.logger.info('YaM updated from GitHub: ' + (updateStdout || '').trim());
                         var updatedAt = new Date().toISOString();
                         self.config.set('lastUpdateVersion', String(remoteVersion || ''));
+                        self.config.set('lastUpdateBuild', String(remoteBuild || ''));
+                        self.config.set('installedBuild', String(remoteBuild || ''));
                         self.config.set('lastUpdateAt', updatedAt);
-                        self.commandRouter.pushToastMessage('success', self.getI18n('YAM_ACCOUNT'), self.getI18n('UPDATE_SUCCESS') + ' ' + remoteVersion + '. ' + self.getI18n('UPDATE_RESTARTING'));
+                        self.config.set('lastUpdateStatus', 'restart_requested');
+                        self.commandRouter.pushToastMessage('success', self.getI18n('YAM_ACCOUNT'), self.getI18n('UPDATE_SUCCESS') + ' ' + remoteVersion + ' (' + remoteBuild + '). ' + self.getI18n('UPDATE_RESTARTING'));
+                        self.commandRouter.pushConsoleMessage('YaM updated to ' + remoteVersion + ' (' + remoteBuild + '); requesting Volumio service restart. Music playback may continue during the restart.');
                         self.getUIConfig().then(function(uiconf) {
                             self.commandRouter.broadcastMessage('pushUiConfig', uiconf);
                         }).fail(function(err) {
@@ -400,7 +440,7 @@ yandexMusic.prototype.updateFromGithub = function() {
                                     self.commandRouter.pushToastMessage('error', self.getI18n('YAM_ACCOUNT'), self.getI18n('UPDATE_RESTART_FAILED'));
                                 }
                             });
-                        }, 2000);
+                        }, 5000);
                     });
                 });
             });
