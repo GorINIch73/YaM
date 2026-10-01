@@ -190,6 +190,9 @@ yandexMusic.prototype.getUIConfig = function() {
 
             var currentVersion = self.getInstalledVersion();
             uiconf.sections[2].content[0].value = currentVersion;
+            var lastVersion = self.config.get('lastUpdateVersion', '');
+            var lastUpdatedAt = self.config.get('lastUpdateAt', '');
+            uiconf.sections[2].content[2].value = lastVersion ? (lastVersion + (lastUpdatedAt ? ' — ' + lastUpdatedAt : '')) : self.getI18n('UPDATE_NEVER');
             axios.get('https://raw.githubusercontent.com/GorINIch73/YaM/main/package.json', { timeout: 5000 })
                 .then(function(resp) {
                     uiconf.sections[2].content[1].value = (resp.data && resp.data.version) ? resp.data.version : self.getI18n('UPDATE_VERSION_UNKNOWN');
@@ -359,13 +362,24 @@ yandexMusic.prototype.updateFromGithub = function() {
                         }
 
                         self.logger.info('YaM updated from GitHub: ' + (updateStdout || '').trim());
-                        self.commandRouter.pushToastMessage('success', self.getI18n('YAM_ACCOUNT'), self.getI18n('UPDATE_SUCCESS') + ' ' + remoteVersion);
+                        var updatedAt = new Date().toISOString();
+                        self.config.set('lastUpdateVersion', String(remoteVersion || ''));
+                        self.config.set('lastUpdateAt', updatedAt);
+                        self.commandRouter.pushToastMessage('success', self.getI18n('YAM_ACCOUNT'), self.getI18n('UPDATE_SUCCESS') + ' ' + remoteVersion + '. ' + self.getI18n('UPDATE_RESTARTING'));
                         self.getUIConfig().then(function(uiconf) {
                             self.commandRouter.broadcastMessage('pushUiConfig', uiconf);
                         }).fail(function(err) {
                             self.logger.warn('Unable to refresh YaM settings after update', err);
                         });
                         resolve();
+                        setTimeout(function() {
+                            execFile('sudo', ['systemctl', 'restart', 'volumio.service'], { timeout: 30000 }, function(restartError, restartStdout, restartStderr) {
+                                if (restartError) {
+                                    self.logger.error('YaM updated, but Volumio service restart failed', restartStderr || restartError);
+                                    self.commandRouter.pushToastMessage('error', self.getI18n('YAM_ACCOUNT'), self.getI18n('UPDATE_RESTART_FAILED'));
+                                }
+                            });
+                        }, 2000);
                     });
                 });
             });
