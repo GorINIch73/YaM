@@ -7,18 +7,6 @@
     "type": "boolean",
     "value": false
   },
-  "lastUpdateVersion": {
-    "type": "string",
-    "value": ""
-  },
-  "lastUpdateBuild": {
-    "type": "string",
-    "value": ""
-  },
-  "lastUpdateAt": {
-    "type": "string",
-    "value": ""
-  },
   "lastUpdateStatus": {
     "type": "string",
     "value": ""
@@ -36,10 +24,6 @@
     "value": ""
   },
   "installedBuild": {
-    "type": "string",
-    "value": ""
-  },
-  "githubVersionCheckedAt": {
     "type": "string",
     "value": ""
   }

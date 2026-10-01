@@ -98,7 +98,7 @@
         "id": "installed_version",
         "type": "text",
         "element": "input",
-        "label": "TRANSLATE.INSTALLED_VERSION",
+        "label": "TRANSLATE.INSTALLED_VERSION_BUILD",
         "value": "",
         "attributes": [{"readonly": true}]
       },
@@ -106,15 +106,7 @@
         "id": "github_version",
         "type": "text",
         "element": "input",
-        "label": "TRANSLATE.GITHUB_VERSION",
-        "value": "",
-        "attributes": [{"readonly": true}]
-      },
-      {
-        "id": "last_update",
-        "type": "text",
-        "element": "input",
-        "label": "TRANSLATE.LAST_UPDATE",
+        "label": "TRANSLATE.GITHUB_VERSION_BUILD",
         "value": "",
         "attributes": [{"readonly": true}]
       },
@@ -127,36 +119,14 @@
         "attributes": [{"readonly": true}]
       },
       {
-        "id": "version_check",
-        "type": "text",
-        "element": "input",
-        "label": "TRANSLATE.VERSION_CHECKED_AT",
-        "value": "",
-        "attributes": [{"readonly": true}]
-      },
-      {
-        "id": "installed_build",
-        "type": "text",
-        "element": "input",
-        "label": "TRANSLATE.INSTALLED_BUILD",
-        "value": "",
-        "attributes": [{"readonly": true}]
-      },
-      {
-        "id": "github_build",
-        "type": "text",
-        "element": "input",
-        "label": "TRANSLATE.GITHUB_BUILD",
-        "value": "",
-        "attributes": [{"readonly": true}]
-      },
-      {
-        "id": "update_details",
-        "type": "text",
-        "element": "input",
-        "label": "TRANSLATE.UPDATE_DETAILS_LABEL",
-        "value": "",
-        "attributes": [{"readonly": true}]
+        "id": "check_github_version",
+        "element": "button",
+        "label": "TRANSLATE.CHECK_VERSION_BUTTON",
+        "onClick": {
+          "type": "controller",
+          "endpoint": "music_service/yam",
+          "method": "checkGithubVersion"
+        }
       },
       {
         "id": "update_github",
@@ -166,16 +136,6 @@
           "type": "controller",
           "endpoint": "music_service/yam",
           "method": "updateFromGithub"
-        }
-      },
-      {
-        "id": "check_github_version",
-        "element": "button",
-        "label": "TRANSLATE.CHECK_VERSION_BUTTON",
-        "onClick": {
-          "type": "controller",
-          "endpoint": "music_service/yam",
-          "method": "checkGithubVersion"
         }
       }
     ]
