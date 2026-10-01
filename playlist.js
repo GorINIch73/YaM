@@ -30,11 +30,20 @@ Playlist.prototype.getLikedTrackIds = function() {
     }
 
     return self.client.tracks.getLikedTracksIds(self.user_id).then(function(resp) {
-        var liked = (((resp || {}).result || {}).library || {}).tracks || [];
+        var result = (resp || {}).result || resp || {};
+        var library = result.library || result;
+        var liked = Array.isArray(library.tracks) ? library.tracks :
+            (Array.isArray(result.tracks) ? result.tracks : []);
         var ids = {};
         liked.forEach(function(item) {
-            var id = (item && (item.id || item.trackId)) ? String(item.id || item.trackId) : '';
-            if (id) ids[id] = true;
+            var track = item && item.track ? item.track : item;
+            var id = track && (track.id || track.trackId || track.track_id);
+            if (id === undefined || id === null || id === '') return;
+            id = String(id);
+            ids[id] = true;
+            // Some API/client versions include the album id in the track id,
+            // while Volumio's track URI stores it as a separate component.
+            ids[id.split(':')[0]] = true;
         });
         self.client._yamLikedTrackCache = {
             userId: String(self.user_id),
@@ -49,7 +58,7 @@ Playlist.prototype.markFavouriteStates = function(items) {
     var self = this;
     return self.getLikedTrackIds().then(function(ids) {
         (items || []).forEach(function(item) {
-            if (!item || !item.uri || item.service != 'yam') return;
+            if (!item || !item.uri) return;
             var match = item.uri.match(/^yam\/track\/([^/?#]+)/);
             if (!match) return;
             var id = match[1].split('@')[0].split(':')[0];
@@ -58,7 +67,7 @@ Playlist.prototype.markFavouriteStates = function(items) {
         return items;
     }).catch(function(err) {
         if (self.logger && self.logger.warn) {
-            self.logger.warn('Unable to load Yandex likes for browse display: ' + err);
+            self.logger.warn('Unable to load Yandex likes for browse display: ' + (err.message || err));
         }
         return items;
     });

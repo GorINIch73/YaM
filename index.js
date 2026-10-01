@@ -34,6 +34,8 @@ function yandexMusic(context) {
     self.titles = {};
     self.playlists = {};
     self.current_track = false;
+    self.currentFavouriteLookup = '';
+    self.currentFavouriteApplied = '';
     self.positionAtPrefetch = -1;
 
     self.proxy = new proxy(self.logger);
@@ -668,13 +670,13 @@ yandexMusic.prototype.getTrackIdFromFavourite = function (data) {
     var uri = (data && typeof data.uri == 'string') ? data.uri : '';
     var match = uri.match(/^yam\/track\/([^/?#]+)/);
     if (match) {
-        return match[1].split('@')[0];
+        return match[1].split('@')[0].split(':')[0];
     }
 
     // Volumio can pass MPD's resolved audio URI for the currently playing
     // item. Keep the original YaM id captured before resolving that URL.
     if (this.current_track && this.current_track.track_id) {
-        return this.current_track.track_id.split('@')[0];
+        return this.current_track.track_id.split('@')[0].split(':')[0];
     }
 
     return null;
@@ -705,7 +707,17 @@ yandexMusic.prototype.setTrackFavourite = function (data, liked) {
             if (resp.data && resp.data.error) {
                 throw new Error(resp.data.error.message || 'Yandex Music rejected the like');
             }
-            return resp.data;
+            delete self.client._yamLikedTrackCache;
+            var currentTrackId = self.getTrackIdFromFavourite({uri: self.current_track && self.current_track.uri});
+            if (currentTrackId && self.trackIdsMatch(currentTrackId, trackId)) {
+                self.applyCurrentTrackFavourite(liked);
+                return {
+                    service: 'yam',
+                    uri: self.current_track.uri,
+                    favourite: !!liked
+                };
+            }
+            return undefined;
         });
     }).then(function (result) {
         self.logger.info((liked ? 'Added track to' : 'Removed track from') + ' Yandex Music likes: ' + trackId);
@@ -715,6 +727,58 @@ yandexMusic.prototype.setTrackFavourite = function (data, liked) {
         self.logger.error('Unable to sync YaM like with Yandex Music', err);
         self.commandRouter.pushToastMessage('error', self.getI18n('YAM_ACCOUNT'), self.getI18n('LIKE_FAILED'));
         throw err;
+    });
+};
+
+yandexMusic.prototype.trackIdsMatch = function(left, right) {
+    function baseTrackId(value) {
+        return String(value || '').split('@')[0].split(':')[0];
+    }
+    return !!baseTrackId(left) && baseTrackId(left) === baseTrackId(right);
+};
+
+yandexMusic.prototype.applyCurrentTrackFavourite = function(favourite) {
+    var self = this;
+    if (!self.current_track || !self.current_track.uri) return;
+
+    var sourceUri = self.current_track.uri;
+    var trackId = self.getTrackIdFromFavourite({uri: sourceUri});
+    if (!trackId) return;
+
+    // Keep the now-playing state tied to YaM's source URI. Playback itself is
+    // served through MPD, whose stream URL cannot be matched to a Yandex like.
+    var state = {};
+    try {
+        state = self.lastPlaybackState || self.commandRouter.stateMachine.getState() || {};
+    } catch (err) {
+        self.logger.warn('Unable to read Volumio state for YaM favourite status', err.message || err);
+        state = self.lastPlaybackState || {};
+    }
+    state = Object.assign({}, state, {
+        service: 'yam',
+        uri: sourceUri,
+        favourite: !!favourite
+    });
+    self.currentFavouriteApplied = trackId;
+    self.pushState(state);
+};
+
+yandexMusic.prototype.refreshCurrentTrackFavourite = function() {
+    var self = this;
+    if (!self.current_track || !self.current_track.uri || !self.uid) return;
+
+    var trackId = self.getTrackIdFromFavourite({uri: self.current_track.uri});
+    if (!trackId || self.currentFavouriteLookup === trackId || self.currentFavouriteApplied === trackId) return;
+    self.currentFavouriteLookup = trackId;
+
+    var likes = new playlist(self.client, self.uid);
+    likes.getLikedTrackIds().then(function(ids) {
+        if (!self.current_track || !self.trackIdsMatch(self.getTrackIdFromFavourite({uri: self.current_track.uri}), trackId)) return;
+        self.currentFavouriteLookup = '';
+        self.applyCurrentTrackFavourite(!!ids[trackId]);
+    }).catch(function(err) {
+        if (self.currentFavouriteLookup === trackId) self.currentFavouriteLookup = '';
+        self.logger.warn('Unable to check current YaM track favourite status: ' + (err.message || err));
     });
 };
 
@@ -1108,10 +1172,20 @@ yandexMusic.prototype.browseAlbum = function (playlist_id) {
     return defer.promise;
 };
 
-yandexMusic.prototype.onTrackChanging = function(track) {
+yandexMusic.prototype.onTrackChanging = function(track, isPrefetch) {
     var self = this;
 
     var now = new Date().getTime();
+
+    if (isPrefetch) {
+        var upcomingTrackId = track.uri.split('/').pop();
+        var upcomingIds = upcomingTrackId.split('@');
+        self.prefetched_track = Object.assign({}, track, {
+            track_id: upcomingTrackId,
+            playlist_id: upcomingIds.length > 1 ? upcomingIds[1] : ''
+        });
+        return;
+    }
 
     if (self.current_track) {
         var p = self.playlists[self.current_track.playlist_id];
@@ -1140,10 +1214,14 @@ yandexMusic.prototype.onTrackChanging = function(track) {
     self.current_track.track_id = track_id;
     self.current_track.playlist_id = playlist_id;
     self.current_track.start = now;
+    self.currentFavouriteLookup = '';
+    self.currentFavouriteApplied = '';
 };
 
-yandexMusic.prototype.onTrackChanged = function() {
+yandexMusic.prototype.onTrackChanged = function(isPrefetch) {
     var self = this;
+
+    if (isPrefetch) return;
 
     if (self.current_track && self.current_track.track_id && self.current_track.playlist_id) {
         var p = self.playlists[self.current_track.playlist_id];
@@ -1157,6 +1235,7 @@ yandexMusic.prototype.onTrackChanged = function() {
 yandexMusic.prototype.clearAddPlayTrack = function(track) {
     var self = this;
 
+    self.prefetched_track = null;
     self.onTrackChanging(track);
 
     var track_id = track.uri.split('/').pop();
@@ -1205,7 +1284,7 @@ yandexMusic.prototype.clearAddPlayTrack = function(track) {
 yandexMusic.prototype.prefetch = function(track) {
     var self = this;
 
-    self.onTrackChanging(track);
+    self.onTrackChanging(track, true);
 
     var track_id = track.uri.split('/').pop();
 
@@ -1231,7 +1310,7 @@ yandexMusic.prototype.prefetch = function(track) {
             return self.mpdPlugin.sendMpdCommand('consume 1', []);
         })
         .then(function () {
-            self.onTrackChanged();
+            self.onTrackChanged(true);
             return libQ.resolve();
         });
 }
@@ -1239,6 +1318,19 @@ yandexMusic.prototype.prefetch = function(track) {
 // volumioPushState callback
 yandexMusic.prototype.onPushState = function (state) {
     var self = this;
+    if (state && typeof state === 'object') {
+        self.lastPlaybackState = state;
+    }
+
+    if (self.prefetched_track && state && state.title === self.prefetched_track.title &&
+        (!state.artist || state.artist === self.prefetched_track.artist)) {
+        var nowPlayingTrack = self.prefetched_track;
+        self.prefetched_track = null;
+        self.onTrackChanging(nowPlayingTrack);
+        self.onTrackChanged();
+    }
+
+    self.refreshCurrentTrackFavourite();
 
     // Volumio 3 increasePlaybackTimer set isConsume to false,
     // and prefetched track does not display metadata
