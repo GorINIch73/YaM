@@ -294,8 +294,28 @@ yandexMusic.prototype.getInstalledVersion = function() {
 
 yandexMusic.prototype.getInstalledBuild = function() {
     var configuredBuild = this.config.get('installedBuild', '');
+    if (configuredBuild && typeof configuredBuild === 'object') {
+        configuredBuild = configuredBuild.value;
+    }
     if (configuredBuild) {
         return String(configuredBuild);
+    }
+
+    // The update runner is a separate process, so read the persisted value as
+    // well as v-conf's in-memory value.
+    try {
+        if (this.configFile) {
+            var config = fs.readJsonSync(this.configFile);
+            var persistedBuild = config.installedBuild;
+            if (persistedBuild && typeof persistedBuild === 'object') {
+                persistedBuild = persistedBuild.value;
+            }
+            if (persistedBuild) {
+                return String(persistedBuild);
+            }
+        }
+    } catch (err) {
+        this.logger.warn('Unable to read installed YaM build from config', err.message || err);
     }
 
     // The updater writes the exact source commit it installed. Prefer that
@@ -520,7 +540,13 @@ yandexMusic.prototype.updateFromGithub = function() {
                         timeout: 5000,
                         stdio: ['ignore', 'pipe', 'ignore']
                     }).toString().trim();
-                    displayVersion = self.formatVersionBuild(remoteVersion, remoteBuild);
+                    // Keep the displayed GitHub target and the value used by
+                    // the installer identical, even if the user skipped the
+                    // separate version check before pressing Update.
+                    self.config.set('githubVersion', String(remoteVersion));
+                    self.config.set('githubBuild', String(remoteBuild));
+                    self.pendingUpdateBuild = String(self.config.get('githubBuild', remoteBuild));
+                    displayVersion = self.formatVersionBuild(remoteVersion, self.pendingUpdateBuild);
                 } catch (versionError) {
                     fs.remove(tempDir, function() {});
                     reject(versionError);
@@ -560,7 +586,7 @@ yandexMusic.prototype.updateFromGithub = function() {
                     configDir,
                     tempDir,
                     String(remoteVersion),
-                    String(remoteBuild),
+                    self.pendingUpdateBuild,
                     displayVersion
                 ], {timeout: 30000, maxBuffer: 1024 * 1024}, function(scheduleError, stdout, stderr) {
                     self.updating = false;
@@ -595,6 +621,9 @@ yandexMusic.prototype.monitorUpdateJob = function() {
         var state = self.getUpdateState();
         if (state.status === 'restart_requested' && !installNotified) {
             installNotified = true;
+            if (self.pendingUpdateBuild) {
+                self.config.set('installedBuild', self.pendingUpdateBuild);
+            }
             self.commandRouter.pushToastMessage('success', self.getI18n('YAM_ACCOUNT'), self.getI18n('UPDATE_SUCCESS') + (state.details ? ' ' + state.details : ''));
         }
         if (state.status === 'restarting' && !restartNotified) {
