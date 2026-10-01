@@ -17,6 +17,53 @@ function Playlist(client, user_id, playlist_id, type, logger) {
     self.new_tracks = [];
 };
 
+// Cache Yandex's likes library briefly so every browse result can carry the
+// favourite flag Volumio uses to draw the heart. The cache lives on the
+// authenticated client, so it is shared by playlist objects for this account.
+Playlist.prototype.getLikedTrackIds = function() {
+    var self = this;
+    var now = Date.now();
+    var cache = self.client._yamLikedTrackCache;
+
+    if (cache && cache.userId == String(self.user_id) && cache.expiresAt > now) {
+        return libQ.resolve(cache.ids);
+    }
+
+    return self.client.tracks.getLikedTracksIds(self.user_id).then(function(resp) {
+        var liked = (((resp || {}).result || {}).library || {}).tracks || [];
+        var ids = {};
+        liked.forEach(function(item) {
+            var id = (item && (item.id || item.trackId)) ? String(item.id || item.trackId) : '';
+            if (id) ids[id] = true;
+        });
+        self.client._yamLikedTrackCache = {
+            userId: String(self.user_id),
+            expiresAt: Date.now() + 60000,
+            ids: ids
+        };
+        return ids;
+    });
+};
+
+Playlist.prototype.markFavouriteStates = function(items) {
+    var self = this;
+    return self.getLikedTrackIds().then(function(ids) {
+        (items || []).forEach(function(item) {
+            if (!item || !item.uri || item.service != 'yam') return;
+            var match = item.uri.match(/^yam\/track\/([^/?#]+)/);
+            if (!match) return;
+            var id = match[1].split('@')[0].split(':')[0];
+            item.favourite = !!ids[id];
+        });
+        return items;
+    }).catch(function(err) {
+        if (self.logger && self.logger.warn) {
+            self.logger.warn('Unable to load Yandex likes for browse display: ' + err);
+        }
+        return items;
+    });
+};
+
 function getCoverUri(uriTemplate, size) {
     if (uriTemplate) {
         return `https://${uriTemplate.replace('%%', `${size}x${size}`)}`;

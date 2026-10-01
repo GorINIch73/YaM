@@ -959,6 +959,7 @@ yandexMusic.prototype.browseRadio = function (playlist_id) {
     self.playlists[playlist_id].title = self.titles[playlist_id];
 
     self.playlists[playlist_id].fetch().then(function (tracks) {
+        return self.playlists[playlist_id].markFavouriteStates(tracks).then(function () {
         var response = {
             navigation: {
                 lists: [
@@ -972,6 +973,7 @@ yandexMusic.prototype.browseRadio = function (playlist_id) {
             }
         };
         defer.resolve(response);
+        });
     }).fail(function (err) {
         defer.reject(new Error());
     });
@@ -989,6 +991,7 @@ yandexMusic.prototype.browsePlaylist = function (playlist_id) {
     }
 
     self.playlists[playlist_id].fetch().then(function (tracks) {
+        return self.playlists[playlist_id].markFavouriteStates(tracks).then(function () {
         var response = {
             navigation: {
                 lists: [
@@ -1002,6 +1005,7 @@ yandexMusic.prototype.browsePlaylist = function (playlist_id) {
             }
         };
         defer.resolve(response);
+        });
     }).fail(function (err) {
         defer.reject(new Error());
     });
@@ -1020,6 +1024,7 @@ yandexMusic.prototype.browseArtist = function (playlist_id) {
     }
 
     self.playlists[internal_id].fetch().then(function (tracks) {
+        return self.playlists[internal_id].markFavouriteStates(tracks).then(function () {
         var response = {
             navigation: {
                 lists: [
@@ -1033,6 +1038,7 @@ yandexMusic.prototype.browseArtist = function (playlist_id) {
             }
         };
         defer.resolve(response);
+        });
     }).fail(function (err) {
         defer.reject(new Error());
     });
@@ -1049,6 +1055,7 @@ yandexMusic.prototype.browseAlbum = function (playlist_id) {
     }
 
     self.playlists[playlist_id].fetch().then(function (tracks) {
+        return self.playlists[playlist_id].markFavouriteStates(tracks).then(function () {
         var response = {
             navigation: {
                 lists: [
@@ -1062,6 +1069,7 @@ yandexMusic.prototype.browseAlbum = function (playlist_id) {
             }
         };
         defer.resolve(response);
+        });
     }).fail(function (err) {
         defer.reject(new Error());
     });
@@ -1463,7 +1471,9 @@ yandexMusic.prototype._search = function (text, type) {
             }
         }
 
-        defer.resolve(response);
+        p.markFavouriteStates(response.items).then(function () {
+            defer.resolve(response);
+        });
     }).catch(function (err) {
         defer.reject(new Error());
     });
