@@ -43,6 +43,7 @@ yandexMusic.prototype.onVolumioStart = function()
 {
     var self = this;
     var configFile = self.commandRouter.pluginManager.getConfigurationFile(this.context,'config.json');
+    self.configFile = configFile;
     self.config = new (require('v-conf'))();
     self.config.loadFile(configFile);
     self.loadI18n();
@@ -267,20 +268,37 @@ yandexMusic.prototype.getInstalledBuild = function() {
         this.logger.warn('Unable to read installed YaM build number', err.message || err);
     }
 
-    var storedBuild = this.config.get('installedBuild', '');
-    if (storedBuild) {
-        return storedBuild;
+    try {
+        if (this.configFile) {
+            var markerPath = path.join(path.dirname(this.configFile), 'build-info.json');
+            var marker = fs.readJsonSync(markerPath);
+            if (marker.version === this.getInstalledVersion() && marker.build) {
+                return String(marker.build);
+            }
+        }
+    } catch (err) {
+        // The marker is optional for plugins installed before build tracking was added.
     }
 
     try {
-        return execSync('git rev-parse --short=12 HEAD', {
+        var gitBuild = execSync('git rev-parse --short=12 HEAD', {
             cwd: __dirname,
             timeout: 3000,
             stdio: ['ignore', 'pipe', 'ignore']
         }).toString().trim();
+        if (gitBuild) {
+            return gitBuild;
+        }
     } catch (err) {
-        return '';
+        // Installed plugin packages often omit .git.
     }
+
+    var storedBuild = this.config.get('installedBuild', '');
+    if (storedBuild) {
+        return String(storedBuild);
+    }
+
+    return '';
 };
 
 yandexMusic.prototype.checkGithubVersion = function() {
@@ -499,6 +517,16 @@ yandexMusic.prototype.updateFromGithub = function() {
 
                         self.logger.info('YaM updated from GitHub: ' + (updateStdout || '').trim());
                         self.config.set('installedBuild', String(remoteBuild || ''));
+                        try {
+                            if (self.configFile) {
+                                fs.writeJsonSync(path.join(path.dirname(self.configFile), 'build-info.json'), {
+                                    version: String(remoteVersion || ''),
+                                    build: String(remoteBuild || '')
+                                }, {spaces: 2});
+                            }
+                        } catch (markerError) {
+                            self.logger.warn('Unable to persist YaM installed build marker', markerError.message || markerError);
+                        }
                         self.config.set('lastUpdateStatus', 'restart_requested');
                         self.config.set('lastUpdateDetails', self.formatVersionBuild(remoteVersion, remoteBuild));
                         self.commandRouter.pushToastMessage('success', self.getI18n('YAM_ACCOUNT'), self.getI18n('UPDATE_SUCCESS') + ' ' + self.formatVersionBuild(remoteVersion, remoteBuild));
