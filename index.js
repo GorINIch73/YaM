@@ -293,6 +293,22 @@ yandexMusic.prototype.getInstalledVersion = function() {
 };
 
 yandexMusic.prototype.getInstalledBuild = function() {
+    // build-info.json is written by the updater from the exact GitHub commit
+    // passed to the installer. Check it first: v-conf may retain an empty
+    // schema default for installedBuild even after the updater persisted the
+    // build id to the config file.
+    try {
+        if (this.configFile) {
+            var markerPath = path.join(path.dirname(this.configFile), 'build-info.json');
+            var marker = fs.readJsonSync(markerPath);
+            if (marker.version === this.getInstalledVersion() && marker.build) {
+                return String(marker.build);
+            }
+        }
+    } catch (err) {
+        // The marker is optional for plugins installed before build tracking was added.
+    }
+
     var configuredBuild = this.config.get('installedBuild', '');
     if (configuredBuild && typeof configuredBuild === 'object') {
         configuredBuild = configuredBuild.value;
@@ -316,20 +332,6 @@ yandexMusic.prototype.getInstalledBuild = function() {
         }
     } catch (err) {
         this.logger.warn('Unable to read installed YaM build from config', err.message || err);
-    }
-
-    // The updater writes the exact source commit it installed. Prefer that
-    // over package.json's old manually maintained build number.
-    try {
-        if (this.configFile) {
-            var markerPath = path.join(path.dirname(this.configFile), 'build-info.json');
-            var marker = fs.readJsonSync(markerPath);
-            if (marker.version === this.getInstalledVersion() && marker.build) {
-                return String(marker.build);
-            }
-        }
-    } catch (err) {
-        // The marker is optional for plugins installed before build tracking was added.
     }
 
     try {

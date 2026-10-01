@@ -13,6 +13,9 @@ var stateFile = path.join(configDir, 'update-status.json');
 var installedBuildSaved = false;
 var previousInstalledBuild;
 var hadPreviousInstalledBuild = false;
+var buildInfoPath = path.join(configDir, 'build-info.json');
+var previousBuildInfo;
+var hadPreviousBuildInfo = false;
 
 function saveState(status, details) {
     fs.writeFileSync(stateFile, JSON.stringify({
@@ -72,14 +75,24 @@ function writeInstalledBuild(value) {
 }
 
 function saveInstalledBuild() {
+    if (!installedBuildSaved) {
+        hadPreviousBuildInfo = fs.existsSync(buildInfoPath);
+        previousBuildInfo = hadPreviousBuildInfo ? fs.readFileSync(buildInfoPath, 'utf8') : undefined;
+        installedBuildSaved = true;
+    }
     writeInstalledBuild(build);
-    installedBuildSaved = true;
+    fs.writeFileSync(buildInfoPath, JSON.stringify({version: version, build: build}, null, 2));
 }
 
 function restorePreviousInstalledBuild() {
     if (!installedBuildSaved) return;
     try {
         writeInstalledBuild(hadPreviousInstalledBuild ? previousInstalledBuild : null);
+        if (hadPreviousBuildInfo) {
+            fs.writeFileSync(buildInfoPath, previousBuildInfo);
+        } else if (fs.existsSync(buildInfoPath)) {
+            fs.unlinkSync(buildInfoPath);
+        }
     } catch (err) {
         // Keep the installation error authoritative; rollback is best-effort.
     }
@@ -118,6 +131,7 @@ try {
     // service can read it as soon as it comes back up.
     saveInstalledBuild();
 } catch (configError) {
+    restorePreviousInstalledBuild();
     saveState('failed', 'Unable to save installed build id: ' + (configError.message || configError));
     removeRepository();
     throw configError;
@@ -137,10 +151,8 @@ function finishInstallation() {
     clearTimeout(updateTimeout);
     try {
         saveInstalledBuild();
-        fs.writeFileSync(path.join(configDir, 'build-info.json'), JSON.stringify({
-            version: version,
-            build: build
-        }, null, 2));
+        // saveInstalledBuild() already persisted the selected GitHub version
+        // and commit before installation started.
         saveState('restart_requested', displayVersion);
     } catch (writeErr) {
         restorePreviousInstalledBuild();
