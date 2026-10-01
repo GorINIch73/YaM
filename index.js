@@ -293,15 +293,8 @@ yandexMusic.prototype.getInstalledVersion = function() {
 };
 
 yandexMusic.prototype.getInstalledBuild = function() {
-    try {
-        var installedPackage = fs.readJsonSync(path.join(__dirname, 'package.json'));
-        if (installedPackage.build !== undefined && installedPackage.build !== null && installedPackage.build !== '') {
-            return String(installedPackage.build);
-        }
-    } catch (err) {
-        this.logger.warn('Unable to read installed YaM build number', err.message || err);
-    }
-
+    // The updater writes the exact source commit it installed. Prefer that
+    // over package.json's old manually maintained build number.
     try {
         if (this.configFile) {
             var markerPath = path.join(path.dirname(this.configFile), 'build-info.json');
@@ -327,6 +320,16 @@ yandexMusic.prototype.getInstalledBuild = function() {
         // Installed plugin packages often omit .git.
     }
 
+    // Legacy fallback for installs made before build-info.json was introduced.
+    try {
+        var installedPackage = fs.readJsonSync(path.join(__dirname, 'package.json'));
+        if (installedPackage.build !== undefined && installedPackage.build !== null && installedPackage.build !== '') {
+            return String(installedPackage.build);
+        }
+    } catch (err) {
+        this.logger.warn('Unable to read installed YaM build number', err.message || err);
+    }
+
     var storedBuild = this.config.get('installedBuild', '');
     if (storedBuild) {
         return String(storedBuild);
@@ -348,9 +351,6 @@ yandexMusic.prototype.checkGithubVersion = function() {
             var packageInfo = resp.data || {};
             if (!packageInfo.version) {
                 throw new Error('GitHub package.json does not contain a version');
-            }
-            if (packageInfo.build !== undefined && packageInfo.build !== null && packageInfo.build !== '') {
-                return {version: String(packageInfo.version), build: String(packageInfo.build)};
             }
             return axios.get('https://api.github.com/repos/GorINIch73/YaM/commits/main', {
                 timeout: 15000,
@@ -515,7 +515,7 @@ yandexMusic.prototype.updateFromGithub = function() {
                 try {
                     var remotePackage = fs.readJsonSync(path.join(tempDir, 'package.json'));
                     remoteVersion = remotePackage.version;
-                    remoteBuild = (remotePackage.build !== undefined && remotePackage.build !== null && remotePackage.build !== '') ? String(remotePackage.build) : execSync('git rev-parse --short=12 HEAD', {
+                    remoteBuild = execSync('git rev-parse --short=12 HEAD', {
                         cwd: tempDir,
                         timeout: 5000,
                         stdio: ['ignore', 'pipe', 'ignore']

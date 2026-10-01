@@ -1,7 +1,6 @@
 {
 	"name": "yam",
 	"version": "0.1.2",
-	"build": 3,
 	"description": "YaM — Yandex Music plugin for Volumio",
 	"main": "index.js",
 	"scripts": {
