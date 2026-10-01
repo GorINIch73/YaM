@@ -93,11 +93,6 @@
     "element": "section",
     "label": "TRANSLATE.UPDATE_SECTION",
     "description": "TRANSLATE.UPDATE_DESCRIPTION",
-    "onSave": {
-      "type": "controller",
-      "endpoint": "music_service/yam",
-      "method": "updateFromGithub"
-    },
     "content": [
       {
         "id": "installed_version",
@@ -156,6 +151,24 @@
         "attributes": [{"readonly": true}]
       },
       {
+        "id": "update_details",
+        "type": "text",
+        "element": "input",
+        "label": "TRANSLATE.UPDATE_DETAILS_LABEL",
+        "value": "",
+        "attributes": [{"readonly": true}]
+      },
+      {
+        "id": "update_github",
+        "element": "button",
+        "label": "TRANSLATE.UPDATE_BUTTON",
+        "onClick": {
+          "type": "controller",
+          "endpoint": "music_service/yam",
+          "method": "updateFromGithub"
+        }
+      },
+      {
         "id": "check_github_version",
         "element": "button",
         "label": "TRANSLATE.CHECK_VERSION_BUTTON",
@@ -165,11 +178,7 @@
           "method": "checkGithubVersion"
         }
       }
-    ],
-    "saveButton": {
-      "label": "TRANSLATE.UPDATE_BUTTON",
-      "data": []
-    }
+    ]
   }
   ]
 }

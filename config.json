@@ -23,6 +23,10 @@
     "type": "string",
     "value": ""
   },
+  "lastUpdateDetails": {
+    "type": "string",
+    "value": ""
+  },
   "githubVersion": {
     "type": "string",
     "value": ""

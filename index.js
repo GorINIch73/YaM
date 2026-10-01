@@ -55,6 +55,11 @@ yandexMusic.prototype.onVolumioStart = function()
 yandexMusic.prototype.onStart = function() {
     var self = this;
 
+    if (['restart_requested', 'restarting'].indexOf(self.config.get('lastUpdateStatus', '')) !== -1) {
+        self.config.set('lastUpdateStatus', 'restart_completed');
+        self.config.set('lastUpdateDetails', '');
+    }
+
     self.addToBrowseSources();
     self.mpdPlugin = self.commandRouter.pluginManager.getPlugin('music_service', 'mpd');
 
@@ -203,6 +208,7 @@ yandexMusic.prototype.getUIConfig = function() {
             uiconf.sections[2].content[4].value = checkedAt || self.getI18n('VERSION_NOT_CHECKED');
             uiconf.sections[2].content[5].value = self.getInstalledBuild() || self.getI18n('UPDATE_VERSION_UNKNOWN');
             uiconf.sections[2].content[6].value = githubBuild || self.getI18n('UPDATE_VERSION_UNKNOWN');
+            uiconf.sections[2].content[7].value = self.config.get('lastUpdateDetails', '') || self.getI18n('UPDATE_DETAILS_NONE');
             defer.resolve(uiconf);
         })
         .fail(function()
@@ -367,7 +373,14 @@ yandexMusic.prototype.updateFromGithub = function() {
     }
     self.updating = true;
 
+    self.config.set('lastUpdateStatus', 'downloading');
+    self.config.set('lastUpdateDetails', '');
     self.commandRouter.pushToastMessage('info', self.getI18n('YAM_ACCOUNT'), self.getI18n('UPDATE_STARTED'));
+    self.getUIConfig().then(function(uiconf) {
+        self.commandRouter.broadcastMessage('pushUiConfig', uiconf);
+    }).fail(function(err) {
+        self.logger.warn('Unable to show YaM update progress', err);
+    });
 
     return new Promise(function(resolve, reject) {
         fs.mkdtemp(path.join(os.tmpdir(), 'yam-update-'), function(tempDirError, tempDir) {
@@ -381,6 +394,7 @@ yandexMusic.prototype.updateFromGithub = function() {
                 'https://github.com/GorINIch73/YaM.git', tempDir
             ], { timeout: 5 * 60 * 1000, maxBuffer: 1024 * 1024 }, function(cloneError, stdout, stderr) {
                 if (cloneError) {
+                    cloneError.details = stderr || stdout || cloneError.details;
                     fs.remove(tempDir, function() {});
                     reject(cloneError);
                     return;
@@ -401,6 +415,14 @@ yandexMusic.prototype.updateFromGithub = function() {
                     return;
                 }
 
+                self.config.set('lastUpdateStatus', 'installing');
+                self.config.set('lastUpdateDetails', String(remoteVersion) + ' (' + remoteBuild + ')');
+                self.getUIConfig().then(function(uiconf) {
+                    self.commandRouter.broadcastMessage('pushUiConfig', uiconf);
+                }).fail(function(err) {
+                    self.logger.warn('Unable to show YaM install progress', err);
+                });
+
                 execFile('volumio', ['plugin', 'update'], {
                     cwd: tempDir,
                     timeout: 15 * 60 * 1000,
@@ -413,6 +435,7 @@ yandexMusic.prototype.updateFromGithub = function() {
 
                         self.updating = false;
                         if (updateError) {
+                            updateError.details = updateStderr || updateStdout || updateError.details;
                             self.logger.error('Unable to update YaM from GitHub', updateStderr || updateError);
                             reject(updateError);
                             return;
@@ -425,7 +448,8 @@ yandexMusic.prototype.updateFromGithub = function() {
                         self.config.set('installedBuild', String(remoteBuild || ''));
                         self.config.set('lastUpdateAt', updatedAt);
                         self.config.set('lastUpdateStatus', 'restart_requested');
-                        self.commandRouter.pushToastMessage('success', self.getI18n('YAM_ACCOUNT'), self.getI18n('UPDATE_SUCCESS') + ' ' + remoteVersion + ' (' + remoteBuild + '). ' + self.getI18n('UPDATE_RESTARTING'));
+                        self.config.set('lastUpdateDetails', String(remoteVersion) + ' (' + remoteBuild + ')');
+                        self.commandRouter.pushToastMessage('success', self.getI18n('YAM_ACCOUNT'), self.getI18n('UPDATE_SUCCESS') + ' ' + remoteVersion + ' (' + remoteBuild + ')');
                         self.commandRouter.pushConsoleMessage('YaM updated to ' + remoteVersion + ' (' + remoteBuild + '); requesting Volumio service restart. Music playback may continue during the restart.');
                         self.getUIConfig().then(function(uiconf) {
                             self.commandRouter.broadcastMessage('pushUiConfig', uiconf);
@@ -434,12 +458,27 @@ yandexMusic.prototype.updateFromGithub = function() {
                         });
                         resolve();
                         setTimeout(function() {
-                            execFile('sudo', ['systemctl', 'restart', 'volumio.service'], { timeout: 30000 }, function(restartError, restartStdout, restartStderr) {
-                                if (restartError) {
-                                    self.logger.error('YaM updated, but Volumio service restart failed', restartStderr || restartError);
-                                    self.commandRouter.pushToastMessage('error', self.getI18n('YAM_ACCOUNT'), self.getI18n('UPDATE_RESTART_FAILED'));
-                                }
+                            self.config.set('lastUpdateStatus', 'restarting');
+                            self.commandRouter.pushToastMessage('info', self.getI18n('YAM_ACCOUNT'), self.getI18n('UPDATE_RESTARTING'));
+                            self.getUIConfig().then(function(uiconf) {
+                                self.commandRouter.broadcastMessage('pushUiConfig', uiconf);
                             });
+                            setTimeout(function() {
+                                execFile('sudo', ['systemctl', 'restart', 'volumio'], { timeout: 30000 }, function(restartError, restartStdout, restartStderr) {
+                                    if (restartError) {
+                                        self.config.set('lastUpdateStatus', 'restart_failed');
+                                        self.config.set('lastUpdateDetails', String(restartStderr || restartError.message || restartError).slice(-500));
+                                        self.logger.error('YaM updated, but Volumio service restart failed', restartStderr || restartError);
+                                        self.commandRouter.pushToastMessage('error', self.getI18n('YAM_ACCOUNT'), self.getI18n('UPDATE_RESTART_FAILED'));
+                                        self.getUIConfig().then(function(uiconf) {
+                                            self.commandRouter.broadcastMessage('pushUiConfig', uiconf);
+                                        });
+                                    } else {
+                                        self.config.set('lastUpdateStatus', 'restart_completed');
+                                        self.config.set('lastUpdateDetails', String(remoteVersion) + ' (' + remoteBuild + ')');
+                                    }
+                                });
+                            }, 1500);
                         }, 5000);
                     });
                 });
@@ -447,8 +486,15 @@ yandexMusic.prototype.updateFromGithub = function() {
         });
     }).catch(function(err) {
         self.updating = false;
+        self.config.set('lastUpdateStatus', 'failed');
+        self.config.set('lastUpdateDetails', String(err.details || err.stderr || err.message || err).slice(-500));
         self.logger.error('Unable to prepare YaM update from GitHub', err);
-        self.commandRouter.pushToastMessage('error', self.getI18n('YAM_ACCOUNT'), self.getI18n('UPDATE_FAILED'));
+        self.commandRouter.pushToastMessage('error', self.getI18n('YAM_ACCOUNT'), self.getI18n('UPDATE_FAILED') + ': ' + String(err.details || err.stderr || err.message || err).slice(-180));
+        self.getUIConfig().then(function(uiconf) {
+            self.commandRouter.broadcastMessage('pushUiConfig', uiconf);
+        }).fail(function(configError) {
+            self.logger.warn('Unable to show YaM update error in settings', configError);
+        });
         throw err;
     });
 };
