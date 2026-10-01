@@ -36,6 +36,8 @@
   "UPDATE_FAILED":"Не удалось обновить плагин YaM",
   "INSTALLED_VERSION_BUILD":"Установленная версия / сборка",
   "GITHUB_VERSION_BUILD":"Новая версия / сборка на GitHub",
+  "BUILD_NUMBER":"сборка",
+  "BUILD_UNKNOWN":"не определена",
   "UPDATE_VERSION_UNKNOWN":"Не удалось определить",
   "UPDATE_STATUS_LABEL":"Статус обновления",
   "UPDATE_STATUS_check_required":"Нажмите «Проверить обновление»",

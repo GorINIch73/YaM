@@ -36,6 +36,8 @@
   "UPDATE_FAILED":"Unable to update YaM plugin",
   "INSTALLED_VERSION_BUILD":"Installed version / build",
   "GITHUB_VERSION_BUILD":"Latest version / build on GitHub",
+  "BUILD_NUMBER":"build",
+  "BUILD_UNKNOWN":"unknown",
   "UPDATE_VERSION_UNKNOWN":"Unable to determine",
   "UPDATE_STATUS_LABEL":"Update status",
   "UPDATE_STATUS_check_required":"Press Check for updates",
