@@ -293,6 +293,11 @@ yandexMusic.prototype.getInstalledVersion = function() {
 };
 
 yandexMusic.prototype.getInstalledBuild = function() {
+    var configuredBuild = this.config.get('installedBuild', '');
+    if (configuredBuild) {
+        return String(configuredBuild);
+    }
+
     // The updater writes the exact source commit it installed. Prefer that
     // over package.json's old manually maintained build number.
     try {
@@ -328,11 +333,6 @@ yandexMusic.prototype.getInstalledBuild = function() {
         }
     } catch (err) {
         this.logger.warn('Unable to read installed YaM build number', err.message || err);
-    }
-
-    var storedBuild = this.config.get('installedBuild', '');
-    if (storedBuild) {
-        return String(storedBuild);
     }
 
     return '';

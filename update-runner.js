@@ -46,6 +46,20 @@ function removeTree(target) {
     }
 }
 
+function saveInstalledBuild() {
+    var configPath = path.join(configDir, 'config.json');
+    var config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    if (config.installedBuild && typeof config.installedBuild === 'object') {
+        config.installedBuild.value = build;
+    } else {
+        config.installedBuild = {type: 'string', value: build};
+    }
+
+    var temporaryConfigPath = configPath + '.tmp';
+    fs.writeFileSync(temporaryConfigPath, JSON.stringify(config, null, 2) + '\n');
+    fs.renameSync(temporaryConfigPath, configPath);
+}
+
 function restartVolumio() {
     setTimeout(function() {
         saveState('restarting', displayVersion);
@@ -86,6 +100,7 @@ function finishInstallation() {
     completed = true;
     clearTimeout(updateTimeout);
     try {
+        saveInstalledBuild();
         fs.writeFileSync(path.join(configDir, 'build-info.json'), JSON.stringify({
             version: version,
             build: build
