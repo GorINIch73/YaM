@@ -122,6 +122,24 @@
         "label": "TRANSLATE.LAST_UPDATE",
         "value": "",
         "attributes": [{"readonly": true}]
+      },
+      {
+        "id": "version_check",
+        "type": "text",
+        "element": "input",
+        "label": "TRANSLATE.VERSION_CHECKED_AT",
+        "value": "",
+        "attributes": [{"readonly": true}]
+      },
+      {
+        "id": "check_github_version",
+        "element": "button",
+        "label": "TRANSLATE.CHECK_VERSION_BUTTON",
+        "onClick": {
+          "type": "controller",
+          "endpoint": "music_service/yam",
+          "method": "checkGithubVersion"
+        }
       }
     ],
     "saveButton": {

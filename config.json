@@ -14,5 +14,13 @@
   "lastUpdateAt": {
     "type": "string",
     "value": ""
+  },
+  "githubVersion": {
+    "type": "string",
+    "value": ""
+  },
+  "githubVersionCheckedAt": {
+    "type": "string",
+    "value": ""
   }
 }

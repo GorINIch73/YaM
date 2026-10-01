@@ -193,16 +193,11 @@ yandexMusic.prototype.getUIConfig = function() {
             var lastVersion = self.config.get('lastUpdateVersion', '');
             var lastUpdatedAt = self.config.get('lastUpdateAt', '');
             uiconf.sections[2].content[2].value = lastVersion ? (lastVersion + (lastUpdatedAt ? ' — ' + lastUpdatedAt : '')) : self.getI18n('UPDATE_NEVER');
-            axios.get('https://raw.githubusercontent.com/GorINIch73/YaM/main/package.json', { timeout: 5000 })
-                .then(function(resp) {
-                    uiconf.sections[2].content[1].value = (resp.data && resp.data.version) ? resp.data.version : self.getI18n('UPDATE_VERSION_UNKNOWN');
-                    defer.resolve(uiconf);
-                })
-                .catch(function(err) {
-                    self.logger.warn('Unable to check YaM version on GitHub', err.message || err);
-                    uiconf.sections[2].content[1].value = self.getI18n('UPDATE_VERSION_UNKNOWN');
-                    defer.resolve(uiconf);
-                });
+            var githubVersion = self.config.get('githubVersion', '');
+            var checkedAt = self.config.get('githubVersionCheckedAt', '');
+            uiconf.sections[2].content[1].value = githubVersion || self.getI18n('UPDATE_VERSION_UNKNOWN');
+            uiconf.sections[2].content[3].value = checkedAt || self.getI18n('VERSION_NOT_CHECKED');
+            defer.resolve(uiconf);
         })
         .fail(function()
         {
@@ -219,6 +214,32 @@ yandexMusic.prototype.getInstalledVersion = function() {
         this.logger.warn('Unable to read installed YaM version', err.message || err);
         return this.getI18n('UPDATE_VERSION_UNKNOWN');
     }
+};
+
+yandexMusic.prototype.checkGithubVersion = function() {
+    var self = this;
+    self.commandRouter.pushToastMessage('info', self.getI18n('YAM_ACCOUNT'), self.getI18n('VERSION_CHECK_STARTED'));
+
+    return axios.get('https://raw.githubusercontent.com/GorINIch73/YaM/main/package.json', { timeout: 15000 })
+        .then(function(resp) {
+            var version = resp.data && resp.data.version;
+            if (!version) {
+                throw new Error('GitHub package.json does not contain a version');
+            }
+
+            var checkedAt = new Date().toISOString();
+            self.config.set('githubVersion', String(version));
+            self.config.set('githubVersionCheckedAt', checkedAt);
+            self.commandRouter.pushToastMessage('success', self.getI18n('YAM_ACCOUNT'), self.getI18n('VERSION_CHECK_SUCCESS') + ' ' + version);
+            return self.getUIConfig().then(function(uiconf) {
+                self.commandRouter.broadcastMessage('pushUiConfig', uiconf);
+            });
+        })
+        .catch(function(err) {
+            self.logger.warn('Unable to check YaM version on GitHub', err.message || err);
+            self.commandRouter.pushToastMessage('error', self.getI18n('YAM_ACCOUNT'), self.getI18n('VERSION_CHECK_FAILED'));
+            throw err;
+        });
 };
 
 yandexMusic.prototype.getConfigurationFiles = function() {
