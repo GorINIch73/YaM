@@ -441,15 +441,21 @@ yandexMusic.prototype.setTrackFavourite = function (data, liked) {
             throw new Error('Yandex Music account is not authorized');
         }
 
-        var action = liked ? self.client.tracks.likeTracks : self.client.tracks.removeLikedTracks;
-        return action.call(self.client.tracks, uid, [trackId]);
+        var action = liked ? 'add-multiple' : 'remove';
+        var headers = Object.assign({}, self.client.request.config.HEADERS, {
+            'Content-Type': 'application/x-www-form-urlencoded'
+        });
+        return axios.post(
+            'https://api.music.yandex.net/users/' + encodeURIComponent(uid) + '/likes/tracks/' + action,
+            querystring.stringify({'track-ids': trackId}),
+            { headers: headers, timeout: 15000 }
+        ).then(function(resp) {
+            if (resp.data && resp.data.error) {
+                throw new Error(resp.data.error.message || 'Yandex Music rejected the like');
+            }
+            return resp.data;
+        });
     }).then(function (result) {
-        // The likes playlist is cached by Playlist; clear it so the next
-        // browse reflects the account's updated library.
-        var likesId = self.uid + ':3';
-        if (self.playlists[likesId]) {
-            self.playlists[likesId].tracks = [];
-        }
         self.logger.info((liked ? 'Added track to' : 'Removed track from') + ' Yandex Music likes: ' + trackId);
         self.commandRouter.pushToastMessage('success', self.getI18n('YAM_ACCOUNT'), self.getI18n(liked ? 'LIKE_SENT' : 'LIKE_REMOVED'));
         return result;
