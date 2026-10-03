@@ -201,6 +201,7 @@ yandexMusic.prototype.getUIConfig = function() {
                 uiconf.sections[0].onSave.method = 'accountLogout';
             }
             uiconf.sections[1].content[0].value = !!self.config.get('hq');
+            uiconf.sections[2].content[0].value = self.diagnosticLog.join('\n');
             defer.resolve(uiconf);
         })
         .fail(function()

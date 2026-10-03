@@ -87,6 +87,20 @@
         "value": false
       }
     ]
+  },
+  {
+    "id": "section_diagnostics",
+    "element": "section",
+    "label": "TRANSLATE.DIAGNOSTICS",
+    "content": [
+      {
+        "id": "diagnostic_log",
+        "type": "text",
+        "element": "textarea",
+        "label": "TRANSLATE.DIAGNOSTIC_LOG",
+        "value": ""
+      }
+    ]
   }
   ]
 }
