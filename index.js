@@ -30,6 +30,7 @@ function yandexMusic(context) {
 
     self.titles = {};
     self.playlists = {};
+    self.diagnosticLog = [];
     self.current_track = false;
     self.positionAtPrefetch = -1;
 
@@ -110,6 +111,22 @@ yandexMusic.prototype.getI18n = function (key) {
             return self.i18nDefaults[key];
         }
     }
+};
+
+yandexMusic.prototype.addDiagnosticLog = function (message, details) {
+    var line = new Date().toISOString() + ' ' + message;
+    if (details !== undefined) {
+        try {
+            line += ' ' + JSON.stringify(details);
+        } catch (e) {
+            line += ' [details could not be serialized]';
+        }
+    }
+    // Avoid unexpectedly large Volumio browse responses.
+    if (line.length > 700) line = line.substring(0, 697) + '...';
+    this.diagnosticLog.push(line);
+    if (this.diagnosticLog.length > 30) this.diagnosticLog.shift();
+    this.logger.info('[YaM diagnostics] ' + line);
 };
 
 yandexMusic.prototype.initClient = function() {
@@ -356,6 +373,7 @@ yandexMusic.prototype.browseRoot = function () {
                     // Root has not been cached yet
                     if (value == undefined) {
                         self.listRoot().then( (data) => {
+                            self.addDiagnosticsToRoot(data);
                             // Set root cache
                             self.browseCache.set('root', data);
                             defer.resolve(data);
@@ -386,6 +404,19 @@ yandexMusic.prototype.browseRoot = function () {
     });
 
     return defer.promise;
+};
+
+yandexMusic.prototype.addDiagnosticsToRoot = function (response) {
+    var entries = this.diagnosticLog.slice(-12);
+    if (entries.length === 0) return;
+    for (var i = 0; i < entries.length; ++i) {
+        response.navigation.lists.push({
+            availableListViews: ['list'],
+            type: 'title',
+            title: '[YaM DEBUG] ' + entries[i],
+            items: []
+        });
+    }
 };
 
 yandexMusic.prototype.listRoot = function () {
@@ -459,7 +490,19 @@ yandexMusic.prototype.listRoot = function () {
         }
     };
 
-    self.client.landing.getLandingBlocks('personal-playlists,new-releases,new-playlists,play-contexts,playlists').then(function (resp) {
+    var requestedBlocks = 'personal-playlists,new-releases,new-playlists,play-contexts,playlists';
+    self.addDiagnosticLog('landing request started', { blocks: requestedBlocks, uid: self.uid });
+    self.client.landing.getLandingBlocks(requestedBlocks).then(function (resp) {
+        var result = resp && resp.result;
+        var landingBlocks = result && Array.isArray(result.blocks) ? result.blocks : [];
+        self.addDiagnosticLog('landing response received', {
+            responseKeys: resp ? Object.keys(resp) : [],
+            resultKeys: result ? Object.keys(result) : [],
+            blocks: landingBlocks.map(function (x) {
+                return { type: x.type, title: x.title, entitiesCount: Array.isArray(x.entities) ? x.entities.length : null,
+                    keys: Object.keys(x) };
+            })
+        });
         var p = new playlist(self.client, self.uid);
         var block;
         // Selected for You
@@ -503,6 +546,12 @@ yandexMusic.prototype.listRoot = function () {
         if (block) {
             var playlistEntities = block.entities || block.playlists || block.data || [];
             if (!Array.isArray(playlistEntities)) playlistEntities = [];
+            self.addDiagnosticLog('playlists block inspected', {
+                blockKeys: Object.keys(block), entityCount: playlistEntities.length,
+                firstEntity: playlistEntities.length ? playlistEntities[0] : null
+            });
+            var acceptedPlaylists = [];
+            var rejectedEntities = 0;
             playlistEntities.forEach(function (entity) {
                 var data = entity;
                 // Landing entities have changed shape between API versions
@@ -511,12 +560,20 @@ yandexMusic.prototype.listRoot = function () {
                     if (data.uid !== undefined && data.kind !== undefined) break;
                     data = data.data || data.playlist || data.payload;
                 }
-                if (!data || data.uid === undefined || data.kind === undefined) return;
+                if (!data || data.uid === undefined || data.kind === undefined) {
+                    rejectedEntities++;
+                    return;
+                }
                 var item = p.landingToPlaylist(data);
                 self.titles[item.id] = item.title;
                 response.navigation.lists[5].items.push(item);
+                acceptedPlaylists.push({ id: item.id, title: item.title });
             });
-        }
+            self.addDiagnosticLog('playlists mapping finished', {
+                acceptedCount: acceptedPlaylists.length, rejectedCount: rejectedEntities,
+                accepted: acceptedPlaylists.slice(0, 10)
+            });
+        } else self.addDiagnosticLog('playlists block missing from landing response');
         // Radio dashboard
         self.client.rotor.getRotorStationsDashboard().then(function (resp) {
             var blocks = resp.result.stations.map(function (x) { return p.stationToRadio(x.station); });
@@ -529,6 +586,7 @@ yandexMusic.prototype.listRoot = function () {
             defer.resolve(response);
         });
     }).catch(function (err) {
+        self.addDiagnosticLog('landing request failed', { message: err && err.message, status: err && err.status, error: String(err) });
         defer.reject(new Error());
     });
 
