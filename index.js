@@ -446,11 +446,23 @@ yandexMusic.prototype.listRoot = function () {
                     "items": [
                     ]
                 },
+                {
+                    "availableListViews": ["grid", "list"],
+                    "type": "title",
+                    "title": self.getI18n('MY_MIXES'),
+                    "items": []
+                },
+                {
+                    "availableListViews": ["grid", "list"],
+                    "type": "title",
+                    "title": self.getI18n('MY_CHART'),
+                    "items": []
+                },
             ]
         }
     };
 
-    self.client.landing.getLandingBlocks('personal-playlists,new-releases,new-playlists,play-contexts').then(function (resp) {
+    self.client.landing.getLandingBlocks('personal-playlists,new-releases,new-playlists,play-contexts,mixes,chart').then(function (resp) {
         var p = new playlist(self.client, self.uid);
         var block;
         // Selected for You
@@ -488,6 +500,22 @@ yandexMusic.prototype.listRoot = function () {
                 response.navigation.lists[4].items.push(blocks[i]);
             }
         }
+        // Mixes and the chart are playlist entries in the Yandex Music client.
+        // Ignore non-playlist entities because the landing response varies by account/region.
+        [
+            { type: 'mixes', list: 5 },
+            { type: 'chart', list: 6 }
+        ].forEach(function (section) {
+            block = resp.result.blocks.find(function (x) { return x.type == section.type; });
+            if (!block || !Array.isArray(block.entities)) return;
+            block.entities.forEach(function (entity) {
+                var data = entity.data && (entity.data.data || entity.data);
+                if (!data || data.uid === undefined || data.kind === undefined) return;
+                var item = p.landingToPlaylist(data);
+                self.titles[item.id] = item.title;
+                response.navigation.lists[section.list].items.push(item);
+            });
+        });
         // Radio dashboard
         self.client.rotor.getRotorStationsDashboard().then(function (resp) {
             var blocks = resp.result.stations.map(function (x) { return p.stationToRadio(x.station); });
