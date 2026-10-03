@@ -72,8 +72,9 @@ Playlist.prototype.trackToFolder = function(track) {
 
 Playlist.prototype.landingToPlaylist = function(landing) {
     var id = landing.uid + ':' + landing.kind;
-    var cover_uri = (landing.cover.uri) ? landing.cover.uri : (
-        (landing.cover.itemsUri && landing.cover.itemsUri[0]) ? landing.cover.itemsUri[0] : ''
+    var cover = landing.cover || {};
+    var cover_uri = (cover.uri) ? cover.uri : (
+        (cover.itemsUri && cover.itemsUri[0]) ? cover.itemsUri[0] : ''
     );
     return {
         id: id,

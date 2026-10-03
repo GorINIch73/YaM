@@ -348,6 +348,9 @@ yandexMusic.prototype.browseRoot = function () {
             };
             defer.resolve(response);
         } else {
+            // Volumio's refresh action calls browseRoot again; don't keep an
+            // empty/old landing response for the full cache TTL.
+            self.browseCache.del('root');
             self.browseCache.get('root', function(err, value){
                 if (!err) {
                     // Root has not been cached yet
@@ -497,9 +500,17 @@ yandexMusic.prototype.listRoot = function () {
         // This block contains actual playlist objects. Mixes and chart use
         // different entity types and cannot be opened through the playlist route.
         block = resp.result.blocks.find(function (x) { return x.type == 'playlists'; });
-        if (block && Array.isArray(block.entities)) {
-            block.entities.forEach(function (entity) {
-                var data = entity.data && (entity.data.data || entity.data);
+        if (block) {
+            var playlistEntities = block.entities || block.playlists || block.data || [];
+            if (!Array.isArray(playlistEntities)) playlistEntities = [];
+            playlistEntities.forEach(function (entity) {
+                var data = entity;
+                // Landing entities have changed shape between API versions
+                // (plain Playlist, BlockEntity, or one/more `data` wrappers).
+                for (var depth = 0; depth < 4 && data; ++depth) {
+                    if (data.uid !== undefined && data.kind !== undefined) break;
+                    data = data.data || data.playlist || data.payload;
+                }
                 if (!data || data.uid === undefined || data.kind === undefined) return;
                 var item = p.landingToPlaylist(data);
                 self.titles[item.id] = item.title;
