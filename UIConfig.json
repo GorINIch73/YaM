@@ -98,8 +98,7 @@
         "type": "text",
         "element": "textarea",
         "label": "TRANSLATE.DIAGNOSTIC_LOG",
-        "value": "",
-        "attributes": [{"readonly": true}]
+        "value": ""
       }
     ]
   }
