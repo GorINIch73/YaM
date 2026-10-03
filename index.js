@@ -201,7 +201,6 @@ yandexMusic.prototype.getUIConfig = function() {
                 uiconf.sections[0].onSave.method = 'accountLogout';
             }
             uiconf.sections[1].content[0].value = !!self.config.get('hq');
-            uiconf.sections[2].content[0].value = self.diagnosticLog.join('\n');
             defer.resolve(uiconf);
         })
         .fail(function()
@@ -408,16 +407,24 @@ yandexMusic.prototype.browseRoot = function () {
 };
 
 yandexMusic.prototype.addDiagnosticsToRoot = function (response) {
-    var entries = this.diagnosticLog.slice(-12);
+    var entries = this.diagnosticLog.slice(-20);
     if (entries.length === 0) return;
-    for (var i = 0; i < entries.length; ++i) {
-        response.navigation.lists.push({
-            availableListViews: ['list'],
-            type: 'title',
-            title: '[YaM DEBUG] ' + entries[i],
-            items: []
-        });
-    }
+    response.navigation.lists.push({
+        availableListViews: ['list'],
+        type: 'title',
+        title: 'YaM DEBUG — журнал (строки списка)',
+        items: entries.map(function (entry) {
+            return {
+                service: 'yam',
+                type: 'item-no-menu',
+                title: entry,
+                name: entry,
+                artist: '',
+                album: '',
+                uri: 'yam'
+            };
+        })
+    });
 };
 
 yandexMusic.prototype.listRoot = function () {
