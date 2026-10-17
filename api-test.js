@@ -61,6 +61,36 @@ async function fileInfoVariants(token, trackId) {
   }
 }
 
+// Проверка: отдаёт ли сервер flac или flac-mp4. Наборы кодеков — как у официального клиента.
+async function flacScan(token, n) {
+  const uid = '335341972';
+  const pl = await call(token, '/users/' + uid + '/playlists/3', { limit: n });
+  const ids = ((pl.data.result && pl.data.result.tracks) || []).slice(0, n).map(x => {
+    const t = x.track || x;
+    return t.albums && t.albums[0] ? t.albums[0].id + ':' + t.id : null;
+  }).filter(Boolean);
+  console.log('проверяем ' + ids.length + ' треков из «Мне нравится»');
+  const stats = {};
+  for (const codecs of [['flac', 'mp3'], ['flac-mp4', 'aac-mp4', 'he-aac-mp4'],
+                       ['flac', 'aac', 'he-aac', 'mp3', 'flac-mp4', 'aac-mp4', 'he-aac-mp4']]) {
+    for (const transport of ['raw', 'encraw']) {
+      for (const id of ids) {
+        const ts = Math.floor(Date.now() / 1000);
+        const s = sign(KEYS.win32, '' + ts + id + 'lossless' + codecs.join('') + transport);
+        const r = await call(token, '/get-file-info', {
+          ts: ts, trackId: id, quality: 'lossless', codecs: codecs.join(','), transports: transport, sign: s
+        });
+        const d = r.data && r.data.result && r.data.result.downloadInfo;
+        const k = d ? codecs.join(',') + ' ' + transport + ' -> ' + d.codec + '/' + d.quality + '/' + d.bitrate
+                    : codecs.join(',') + ' ' + transport + ' -> HTTP ' + r.status;
+        stats[k] = (stats[k] || 0) + 1;
+        await new Promise(r2 => setTimeout(r2, 400));
+      }
+    }
+  }
+  for (const [k, v] of Object.entries(stats)) console.log('  ' + k + ' x' + v);
+}
+
 async function main() {
   const token = process.argv[2];
   const trackId = process.argv[3] || '314402:31542';
@@ -94,6 +124,9 @@ async function main() {
   } else {
     console.log('ошибка', p.status, JSON.stringify(p.data).slice(0, 200));
   }
+
+  console.log('\n=== 6. flac / flac-mp4: что реально отдаёт сервер ===');
+  await flacScan(token, 15);
 }
 
 main().catch(e => console.error(e));
