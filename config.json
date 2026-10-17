@@ -5,6 +5,6 @@
   },
   "hq": {
     "type": "boolean",
-    "value": false
+    "value": true
   }
 }
