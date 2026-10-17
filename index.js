@@ -31,6 +31,7 @@ function yandexMusic(context) {
     self.titles = {};
     self.playlists = {};
     self.diagnosticLog = [];
+    self.logPath = __dirname + '/yam-diagnostic.log';
     self.current_track = false;
     self.positionAtPrefetch = -1;
 
@@ -125,8 +126,30 @@ yandexMusic.prototype.addDiagnosticLog = function (message, details) {
     // Avoid unexpectedly large Volumio browse responses.
     if (line.length > 700) line = line.substring(0, 697) + '...';
     this.diagnosticLog.push(line);
-    if (this.diagnosticLog.length > 30) this.diagnosticLog.shift();
+    if (this.diagnosticLog.length > 100) this.diagnosticLog.shift();
     this.logger.info('[YaM diagnostics] ' + line);
+    // shortcut: rotate at 200 KB; upgrade to a proper log rotation if needed.
+    try {
+        if (fs.existsSync(this.logPath) && fs.statSync(this.logPath).size > 200000) {
+            fs.writeFileSync(this.logPath, fs.readFileSync(this.logPath, 'utf8').slice(-100000));
+        }
+        fs.appendFileSync(this.logPath, line + '\n');
+    } catch (e) {
+        // logging must never break playback
+    }
+};
+
+// Snapshot of the MPD playlist — the key evidence for "jumping playlists".
+yandexMusic.prototype.logMpdPlaylist = function () {
+    var self = this;
+    return self.mpdPlugin.sendMpdCommand('playlistinfo', [])
+        .then(function (resp) {
+            var items = (resp || []).map(function (x) {
+                return (x.Id || x.id) + ': ' + (x.file || x.File || '');
+            });
+            self.addDiagnosticLog('mpd playlist', { items: items });
+        })
+        .fail(function () {});
 };
 
 yandexMusic.prototype.initClient = function() {
@@ -374,7 +397,6 @@ yandexMusic.prototype.browseRoot = function () {
                     // Root has not been cached yet
                     if (value == undefined) {
                         self.listRoot().then( (data) => {
-                            self.addDiagnosticsToRoot(data);
                             // Set root cache
                             self.browseCache.set('root', data);
                             defer.resolve(data);
@@ -405,27 +427,6 @@ yandexMusic.prototype.browseRoot = function () {
     });
 
     return defer.promise;
-};
-
-yandexMusic.prototype.addDiagnosticsToRoot = function (response) {
-    var entries = this.diagnosticLog.slice(-20);
-    if (entries.length === 0) return;
-    response.navigation.lists.push({
-        availableListViews: ['list'],
-        type: 'title',
-        title: 'YaM DEBUG — журнал (строки списка)',
-        items: entries.map(function (entry) {
-            return {
-                service: 'yam',
-                type: 'item-no-menu',
-                title: entry,
-                name: entry,
-                artist: '',
-                album: '',
-                uri: 'yam'
-            };
-        })
-    });
 };
 
 yandexMusic.prototype.listRoot = function () {
@@ -782,6 +783,9 @@ yandexMusic.prototype.onTrackChanging = function(track) {
             var is_finished = Math.abs(played - self.current_track.duration) < 8;
             p.onEndTrack(self.current_track.track_id, played, is_finished).then(function () {
                 p.fetch().then(function (tracks) {
+                    if (p.new_tracks.length > 0) {
+                        self.addDiagnosticLog('radio queue add', { station: p.playlist_id, count: p.new_tracks.length });
+                    }
                     for (var i = 0; i < p.new_tracks.length; ++i) {
                         self.commandRouter.addQueueItems([{
                             uri: p.new_tracks[i].uri,
@@ -839,6 +843,7 @@ yandexMusic.prototype.clearAddPlayTrack = function(track) {
             track_uri = data.uri;
             track.codec = data.codec;
             track.bitrate = data.bitrate;
+            self.addDiagnosticLog('clearAddPlayTrack', { track: track_id, uri: track_uri, codec: data.codec, bitrate: data.bitrate });
             return self.mpdPlugin.sendMpdCommand('addid "' + track_uri + '"', []);
         })
         .then(function (resp)  {
@@ -852,6 +857,9 @@ yandexMusic.prototype.clearAddPlayTrack = function(track) {
             } else {
                 return libQ.resolve();
             }
+        })
+        .then(function () {
+            return self.logMpdPlaylist();
         })
         .then(function () {
             self.commandRouter.stateMachine.setConsumeUpdateService('mpd');
@@ -875,6 +883,7 @@ yandexMusic.prototype.prefetch = function(track) {
 
     return getTrackUrl(self.client, track_id, self.hq, self.logger, self.proxy.port)
         .then(function (data) {
+            self.addDiagnosticLog('prefetch', { track: track_id, uri: data.uri, positionAtPrefetch: self.positionAtPrefetch });
             return self.mpdPlugin.sendMpdCommand('addid "' + data.uri + '"', [])
         })
         .then(function (resp)  {
@@ -888,6 +897,9 @@ yandexMusic.prototype.prefetch = function(track) {
             } else {
                 return libQ.resolve();
             }
+        })
+        .then(function () {
+            return self.logMpdPlaylist();
         })
         .then(function () {
             return self.mpdPlugin.sendMpdCommand('consume 1', []);
@@ -909,6 +921,10 @@ yandexMusic.prototype.onPushState = function (state) {
             self.commandRouter.stateMachine.setConsumeUpdateService('mpd');
             self.positionAtPrefetch = -1;
         }
+    }
+
+    if (state && state.service == 'yam') {
+        self.addDiagnosticLog('pushState', { uri: state.uri, position: self.commandRouter.stateMachine.currentPosition });
     }
 }
 
@@ -947,12 +963,16 @@ yandexMusic.prototype.resume = function () {
 yandexMusic.prototype.next = function() {
     var self = this;
 
+    self.addDiagnosticLog('next called', { position: self.commandRouter.stateMachine.currentPosition });
     self.commandRouter.stateMachine.setConsumeUpdateService('mpd');
     return self.mpdPlugin.next();
 }
 
 // Previous
 yandexMusic.prototype.previous = function() {
+    var self = this;
+    // P10: previously `self` was undefined here -> ReferenceError in strict mode.
+    self.addDiagnosticLog('previous called', { position: self.commandRouter.stateMachine.currentPosition });
     self.commandRouter.stateMachine.setConsumeUpdateService('mpd');
     return self.mpdPlugin.previous();
 }
