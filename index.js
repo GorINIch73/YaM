@@ -144,12 +144,12 @@ yandexMusic.prototype.logMpdPlaylist = function () {
     var self = this;
     return self.mpdPlugin.sendMpdCommand('playlistinfo', [])
         .then(function (resp) {
-            // shortcut: mpd plugin returns a raw MPD response string; upgrade if the plugin ever returns a parsed list.
-            var list = Array.isArray(resp) ? resp : (resp && resp.response) || String(resp).split('\n');
-            var items = list.map(function (x) {
-                return typeof x === 'string' ? x : (x.Id || x.id) + ': ' + (x.file || x.File || '');
-            }).filter(function (x) { return x && x !== 'OK'; });
-            self.addDiagnosticLog('mpd playlist', { count: items.length, items: items });
+            // shortcut: shape of mpd's playlistinfo reply is unknown here; the raw dump shows it, then replace with a real mapping.
+            self.addDiagnosticLog('mpd playlist', {
+                count: Array.isArray(resp) ? resp.length : 0,
+                keys: resp && typeof resp === 'object' ? Object.keys(resp) : typeof resp,
+                raw: JSON.stringify(resp).slice(0, 250)
+            });
         })
         .fail(function (err) {
             self.addDiagnosticLog('mpd playlist snapshot failed', { error: String(err) });
