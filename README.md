@@ -35,6 +35,27 @@ volumio plugin update
 sudo systemctl restart volumio
 ```
 
+## Логи и диагностика
+
+1. **В веб-интерфейсе Volumio**: **Plugins → Installed plugins → YaM → настройки → Диагностика → Журнал YaM** — последние 100 строк журнала.
+2. **Файл на устройстве** (по SSH, пользователь `volumio`): плагин установлен в `/data/plugins/music_service/yam`, журнал пишется в `yam-diagnostic.log`:
+
+```sh
+tail -f /data/plugins/music_service/yam/yam-diagnostic.log
+grep 'YaM diagnostics' /data/plugins/music_service/yam/yam-diagnostic.log
+```
+
+Файл появляется после первой записи и обрезается, когда превышает 200 КБ.
+
+3. **Общий лог Volumio**, куда попадают сообщения плагина:
+
+```sh
+sudo journalctl -u volumio -f
+sudo journalctl -u volumio --since "10 min ago" | grep YaM
+```
+
+В журнале видны запросы к Яндекс Музыке, снимок очереди MPD, добавление треков в очередь, `prefetch`, `pushState`, `next`/`previous` — этого достаточно, чтобы разобраться с проблемами плейлистов и лайков.
+
 ## Планы
 
 - Расширить работу с плейлистами: добавить больше возможностей для просмотра и управления ими, как в официальном клиенте Яндекс Музыки.
