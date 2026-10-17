@@ -144,10 +144,11 @@ yandexMusic.prototype.logMpdPlaylist = function () {
     var self = this;
     return self.mpdPlugin.sendMpdCommand('playlistinfo', [])
         .then(function (resp) {
-            // shortcut: mpd returns either an array or {response: [...]}, upgrade if the plugin changes shape.
-            var items = (Array.isArray(resp) ? resp : (resp && resp.response) || []).map(function (x) {
-                return (x.Id || x.id) + ': ' + (x.file || x.File || '');
-            });
+            // shortcut: mpd plugin returns a raw MPD response string; upgrade if the plugin ever returns a parsed list.
+            var list = Array.isArray(resp) ? resp : (resp && resp.response) || String(resp).split('\n');
+            var items = list.map(function (x) {
+                return typeof x === 'string' ? x : (x.Id || x.id) + ': ' + (x.file || x.File || '');
+            }).filter(function (x) { return x && x !== 'OK'; });
             self.addDiagnosticLog('mpd playlist', { count: items.length, items: items });
         })
         .fail(function (err) {
