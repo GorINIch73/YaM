@@ -286,3 +286,100 @@ yandexMusic.prototype.previous = function () {
 - Реальный набор `kind` плейлистов в аккаунте пользователя — проверить через `/users/<uid>/playlists/list`.
 - Эффект `setConsumeUpdateService('mpd', true)` (`consumeIgnoreMetadata`) на радио: не «застываются» ли title/albumart станции.
 - Синхронизация `currentPosition` ядра с MPD-позицией при ручном next/previous — проверить на живой системе (логи `CURRENT POSITION`).
+
+---
+
+## 12. Результаты проверки Яндекс API (эксперименты, 17.10.2026)
+
+Все проверки делались напрямую против `https://api.music.yandex.net` с OAuth-токеном аккаунта (`uid 335341972`, регион 225). Скрипты проверки — `api-test.js` (в репозитории) и временные скрипты в `/tmp/opencode/ym/`. Токен в репозиторий не попадает: он передаётся только как аргумент командной строки.
+
+### 12.1 Подпись запросов — подтверждена
+
+Из кода официального клиента (бандл Яндекс Музыки):
+
+```
+sign = HMAC_SHA256(secretKey, ts + trackId + quality + codecs.join("") + transports.join(""))
+ts = Math.floor(Date.now() / 1000)   // секунды, не миллисекунды
+```
+
+Секретные ключи по платформам и их статус на `api.music.yandex.net`:
+
+| Клиент | Ключ | Результат |
+|---|---|---|
+| `YandexMusicDesktopAppWindows/5.25.1` | `kzqU4XhfCaY6B6JTHODeq5` | **200** — работает (его и использует плагин) |
+| web | `7tvSmFbyf5hJnIHhCimDDD` | 403 |
+| darwin | `uz0zSpaYCLmgk6C7YLdo5F` | 403 |
+| linux | `uVNvVMAvdrvjtwN0VlhEt2` | 403 |
+
+Вывод: **подпись в `track.js` правильная**. Ключ и формат соответствуют официальному десктопному клиенту; `ts` в миллисекундах сервер тоже принимает (сервер не проверяет единицу `ts`, только соответствие подписи).
+
+### 12.2 Качество и кодеки
+
+- Качество запроса определяется настройкой аккаунта `productQuality`: `HIGH_QUALITY → lossless`, `BALANCED → nq`, `EFFICIENT → lq`, `PREVIEW → preview`. В UI это «Максимальное» / «Оптимальное» / «Экономичное», хранится в localStorage (`ymPlayerQuality`), а не на сервере.
+- Кодеки официального клиента: `flac, aac, he-aac, mp3` для транспорта `raw`; `flac-mp4, aac-mp4, he-aac-mp4` для `encraw`.
+- Ответ `get-file-info` содержит `downloadInfo.urls` (массив из 4 адресов) и `downloadInfo.url` (первый из них) — плагин использует `info.url`, это корректно.
+
+### 12.3 FLAC: сервер не отдаёт lossless для этого аккаунта
+
+Проверено ~150 треков (радио «Моя волна», плейлист «Мне нравится» — 8790 треков, плейлист «Тоть», поиск по Radiohead / Queen / Rammstein / Daft Punk / Молчат Дома / Billie Eilish / Linkin Park) с разными комбинациями `quality`, `codecs`, `transports` и разными клиентскими ключами.
+
+| Запрос | Ответ |
+|---|---|
+| `quality=lossless&codecs=flac,mp3&transports=raw` | `mp3 nq 192` |
+| `quality=lossless&codecs=flac&transports=raw` | `mp3 nq 192` или 403 `not-allowed` |
+| `quality=lossless&codecs=flac,aac,he-aac,mp3&transports=raw` | `mp3 nq 192` |
+| `quality=lossless&codecs=...&transports=encraw` | `mp3 nq 192` / `aac-mp4 nq 192` |
+| `quality=hqPlus` | 400 `illegal-argument` (такого значения нет) |
+| `GET /tracks/{id}/download-info` | одна запись: `mp3`, `192` |
+
+Практически ни один трек не вернул `codec: "flac"` / `quality: "lossless"`. При этом `/account/status` содержит разрешение `high-quality`, то есть подписка позволяет. Значит **делает выбор сервер**: в текущем каталоге для этих треков lossless-версии нет.
+
+**Что это значит для плагина:** `hq: true` (lossless-запрос) — правильная настройка, она не «ломает» ничего; просто Яндекс возвращает MP3 192. Бейдж качества в UI берётся из фактического кодека ответа, поэтому он честный. Смысла «форсировать» FLAC нет — нужно явно показывать, что реально вернулся MP3 (это уже видно из логов `clearAddPlayTrack {... codec, quality, bitrate ...}`).
+
+### 12.4 Лайки
+
+- `POST /likes?trackId=...` → **404** (`Requested action for /likes was not found`). Правильный путь — `POST /users/{uid}/likes/tracks/add-multiple` (и `/remove`), как в `yandex-music-client`.
+- Список лайков доступен как плейлист: `GET /users/{uid}/playlists/3` (kind 3 = «Мне нравится», 8790 треков).
+- `self.uid` нужно получать из `/account/status` до вызова лайков (P6).
+
+### 12.5 Рабочие эндпоинты (проверены)
+
+| Эндпоинт | Примечание |
+|---|---|
+| `GET /account/status` | uid, login, region, permissions |
+| `GET /account/settings` | возвращает `{}` |
+| `GET /tracks/{id}/download-info` | только mp3 192 |
+| `GET /get-file-info` | основной источник кодеков/качества |
+| `GET /get-file-info/batch` | работает, один запрос на ~20 треков (удобно для сканеров) |
+| `GET /resources/v2/file-info` | альтернативный источник, тот же результат |
+| `GET /users/{uid}/playlists/list` | список плейлистов (kind 102 «Распознано», kind 1000 «Тоть») |
+| `GET /users/{uid}/playlists/{kind}` | треки плейлиста; `limit`/`offset` игнорируются, возвращается весь список |
+| `GET /search?text=…&page=0&type=all&nococrrect=false` | `type=tracks` отдельно → 400 |
+
+`music.yandex.ru` больше не отдаёт JSON по старым путям — там Next.js SPA (HTML).
+
+### 12.6 Ограничения, которые нужно учитывать в коде
+
+1. **Троттлинг.** `get-file-info` при частых запросах отвечает 403 `not-allowed` / `no-rights`. Нужны паузы ~500–1000 мс и повторные попытки; для массовых проверок — `get-file-info/batch`.
+2. **Формат `trackId`.** Работает и `albumId:trackId`, и просто `albumId`, и просто `trackId` — но это **разные** треки. Плагин в `getTrackV2` берёт `ids[0]` (albumId), что может давать не тот трек. Резолвить id нужно однозначно: `albums[0].id + ':' + track.id`.
+3. **Радио всегда MP3 192** («Моя волна», `@user:onyourwave`) — lossless для радио не существует, это не баг плагина.
+
+---
+
+## 13. Что уже сделано (достижения)
+
+| Коммит | Что |
+|---|---|
+| `176ba28` | лог в файл `yam-diagnostic.log`, снимки плейлиста MPD, фикс `self` в `previous()` (P10), удаление отладочного блока из навигации (P19) |
+| `b5508cb`, `ce6ec16`, `07e2fa1` | дополнительные логи |
+| `533cf4a` | навигация |
+| `a63fe73` | `next`/`previous` через очередь ядра: `previous()` = `stateMachine.play(pos-1)`, `next()` = MPD только если в плейлисте MPD больше одного элемента (gapless-prefetch), иначе `stateMachine.play(pos+1)`; корректный разбор `playlistinfo` (объект/массив/ошибка); `clearAddPlayTrack` логирует `{track, codec, bitrate, quality, ext}` |
+| `c8859f6` | `hq: true` по умолчанию в `config.json` (lossless-запрос по умолчанию) |
+| `dbc1835` | длина очереди через `stateMachine.getQueue()` |
+| — | `track.js` возвращает `quality` и `ext`; README: раздел «Логи и диагностика»; `api-test.js` — диагностика API на stdlib `fetch` |
+
+Подтверждённые факты, которые сняли ложные гипотезы:
+
+- «Прыгающие» плейлисты — не проблема Яндекса, а расхождение между очередью ядра и плейлистом MPD (MPD всегда содержит 1–2 элемента).
+- Первый «назад» в consume-режиме перезапускает текущий трек — это стандартное поведение Volumio (`CoreStateMachine::previous()` → `seek(0)`), а не баг YaM.
+- Причина MP3 вместо FLAC — не подпись запроса и не ключ, а ответ сервера (см. 12.3).
