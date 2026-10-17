@@ -96,7 +96,7 @@ function getTrackV2(client, track_id, logger, proxyPort) {
             // MP3 plays directly, and UI show MP3 icon.
             url = info.url;
         }
-        defer.resolve({'uri': url, 'codec': info.codec, 'bitrate': info.bitrate});
+        defer.resolve({'uri': url, 'codec': info.codec, 'bitrate': info.bitrate, 'quality': info.quality, 'ext': ext});
     }).catch(function (err) {
         defer.reject(new Error(err));
     });

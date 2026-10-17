@@ -31,6 +31,7 @@ function yandexMusic(context) {
     self.titles = {};
     self.playlists = {};
     self.diagnosticLog = [];
+    self.mpdPlaylistCount = 0;
     self.logPath = __dirname + '/yam-diagnostic.log';
     self.current_track = false;
     self.positionAtPrefetch = -1;
@@ -144,11 +145,12 @@ yandexMusic.prototype.logMpdPlaylist = function () {
     var self = this;
     return self.mpdPlugin.sendMpdCommand('playlistinfo', [])
         .then(function (resp) {
-            // shortcut: shape of mpd's playlistinfo reply is unknown here; the raw dump shows it, then replace with a real mapping.
+            // mpd client returns one object for a single-item playlist, an array otherwise.
+            var list = Array.isArray(resp) ? resp : (resp && resp.file ? [resp] : []);
+            self.mpdPlaylistCount = list.length;
             self.addDiagnosticLog('mpd playlist', {
-                count: Array.isArray(resp) ? resp.length : 0,
-                keys: resp && typeof resp === 'object' ? Object.keys(resp) : typeof resp,
-                raw: JSON.stringify(resp).slice(0, 250)
+                count: list.length,
+                items: list.map(function (x) { return (x.Pos || x.Id) + ': ' + (x.Artist || '') + ' - ' + (x.Title || ''); })
             });
         })
         .fail(function (err) {
@@ -847,7 +849,7 @@ yandexMusic.prototype.clearAddPlayTrack = function(track) {
             track_uri = data.uri;
             track.codec = data.codec;
             track.bitrate = data.bitrate;
-            self.addDiagnosticLog('clearAddPlayTrack', { track: track_id, uri: track_uri, codec: data.codec, bitrate: data.bitrate });
+            self.addDiagnosticLog('clearAddPlayTrack', { track: track_id, codec: data.codec, bitrate: data.bitrate, quality: data.quality, ext: data.ext });
             return self.mpdPlugin.sendMpdCommand('addid "' + track_uri + '"', []);
         })
         .then(function (resp)  {
@@ -966,17 +968,27 @@ yandexMusic.prototype.resume = function () {
 // Next
 yandexMusic.prototype.next = function() {
     var self = this;
+    var pos = self.commandRouter.stateMachine.currentPosition;
 
-    self.addDiagnosticLog('next called', { position: self.commandRouter.stateMachine.currentPosition });
-    self.commandRouter.stateMachine.setConsumeUpdateService('mpd');
-    return self.mpdPlugin.next();
+    // MPD holds only [current, prefetched next]; when it has no next item the core queue decides.
+    self.addDiagnosticLog('next called', { position: pos, mpdItems: self.mpdPlaylistCount, queue: (self.commandRouter.stateMachine.playQueue || []).length });
+    if (self.mpdPlaylistCount > 1) {
+        self.commandRouter.stateMachine.setConsumeUpdateService('mpd');
+        return self.mpdPlugin.next();
+    }
+    return self.commandRouter.stateMachine.play(pos + 1);
 }
 
 // Previous
 yandexMusic.prototype.previous = function() {
     var self = this;
-    // P10: previously `self` was undefined here -> ReferenceError in strict mode.
-    self.addDiagnosticLog('previous called', { position: self.commandRouter.stateMachine.currentPosition });
+    var pos = self.commandRouter.stateMachine.currentPosition;
+
+    // MPD playlist is cleared on every track, so going back has to come from the core queue.
+    self.addDiagnosticLog('previous called', { position: pos, queue: (self.commandRouter.stateMachine.playQueue || []).length });
+    if (pos > 0) {
+        return self.commandRouter.stateMachine.play(pos - 1);
+    }
     self.commandRouter.stateMachine.setConsumeUpdateService('mpd');
     return self.mpdPlugin.previous();
 }
