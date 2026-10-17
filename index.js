@@ -971,7 +971,7 @@ yandexMusic.prototype.next = function() {
     var pos = self.commandRouter.stateMachine.currentPosition;
 
     // MPD holds only [current, prefetched next]; when it has no next item the core queue decides.
-    self.addDiagnosticLog('next called', { position: pos, mpdItems: self.mpdPlaylistCount, queue: (self.commandRouter.stateMachine.playQueue || []).length });
+    self.addDiagnosticLog('next called', { position: pos, mpdItems: self.mpdPlaylistCount, queue: self.commandRouter.stateMachine.getQueue().length });
     if (self.mpdPlaylistCount > 1) {
         self.commandRouter.stateMachine.setConsumeUpdateService('mpd');
         return self.mpdPlugin.next();
@@ -985,7 +985,7 @@ yandexMusic.prototype.previous = function() {
     var pos = self.commandRouter.stateMachine.currentPosition;
 
     // MPD playlist is cleared on every track, so going back has to come from the core queue.
-    self.addDiagnosticLog('previous called', { position: pos, queue: (self.commandRouter.stateMachine.playQueue || []).length });
+    self.addDiagnosticLog('previous called', { position: pos, queue: self.commandRouter.stateMachine.getQueue().length });
     if (pos > 0) {
         return self.commandRouter.stateMachine.play(pos - 1);
     }
